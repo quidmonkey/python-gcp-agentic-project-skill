@@ -1,0 +1,20 @@
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "C90"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.isort]
+known-first-party = ["{{package_name}}"]
+
+[tool.bandit]
+exclude_dirs = [".venv"]
+
+[tool.pytest.ini_options]
+testpaths = ["{{test-dir}}"]

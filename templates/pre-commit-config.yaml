@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-added-large-files
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.13
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty type check
+        entry: uv run --no-sync ty check {{code-dir}}/{{package_name}}
+        language: system
+        pass_filenames: false
+
+      - id: bandit
+        name: bandit security scan
+        entry: uv run --no-sync bandit -r {{code-dir}}/{{package_name}} -x {{code-dir}}/{{package_name}}/tests --configfile pyproject.toml
+        language: system
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: bash -c 'echo > /dev/tty; uv run --no-sync pytest {{test-dir}} --tb=short -v > /dev/tty 2>&1'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
