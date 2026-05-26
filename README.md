@@ -12,6 +12,7 @@ my-project/
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
 ├── .pre-commit-config.yaml  # all hooks configured
 ├── .gitignore
+├── uv.lock                  # committed; pins transitive deps for deterministic installs
 ├── CLAUDE.md                # Claude Code agent instructions
 └── src/my_package/          # single package layout
     └── __init__.py
@@ -44,7 +45,7 @@ Complexity is enforced via ruff's built-in C90 (McCabe) rules rather than a sepa
 
 Two files keep AI agents honest after they write code.
 
-`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. `.claude/settings.json` adds a `Stop` hook that runs `pre-commit run --all-files` when Claude finishes responding; the output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` and `docs/finops.md`.
+`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` and `docs/finops.md`.
 
 The `Stop` hook is the important one. It's enforcement, not a reminder.
 
@@ -78,13 +79,14 @@ Claude will ask whether you want a single package or monorepo layout, then scaff
 - [Claude Code](https://claude.ai/code)
 - [uv](https://github.com/astral-sh/uv)
 - Git
+- Python ≥ 3.12
 
 ## Notes
 
-This skill has the following goals:
-- Scaffold agentic projects using Claude, GCP, and Python
-- Add guardrails & directives to keep the project healthy
-- Depend on local project installs (no global dependencies)
-- Prioritize documentation (which should live in the repo) and DX
-- Keep setup minimal and avoid context overload
-- Most of the ideas can be found in the [templates/](./templates/) directory. These ideas come through 2 decades worth of experience in both startups and enterprise companies. The goal is to establish baseline conventions, while allowing the project to take whatever form it needs. YMMV.
+The [templates/](./templates/) directory holds the actual opinions: what tools to use, how to configure them, what to tell the AI agent. They reflect two decades of experience across startups and enterprise and are meant as a baseline, not a straitjacket.
+
+A few deliberate choices worth noting:
+- Everything installs locally via `uv` — no global deps, no version conflicts
+- `uv.lock` is committed so installs are reproducible
+- Documentation lives in the repo (`docs/`) so the AI agent can read and update it
+- Setup is intentionally minimal; context overload makes agents worse, not better
