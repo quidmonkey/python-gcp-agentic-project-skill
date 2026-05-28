@@ -1,6 +1,6 @@
 # python-gcp-agentic-project-skill
 
-A Claude Code skill that scaffolds GCP-based Python projects using `uv`. Run one command and get linting, type checking, security scanning, and tests wired into pre-commit, along with agent instruction files that stop AI agents from skipping the checks when writing code.
+A Claude Code skill that scaffolds GCP-based Python projects with `uv`. One command wires linting, type checking, security scanning, and tests into pre-commit. It also drops agent instruction files that stop Claude from skipping those checks when writing code.
 
 ## What it creates
 
@@ -40,6 +40,7 @@ Complexity is enforced via ruff's built-in C90 (McCabe) rules rather than a sepa
 |-------|--------|
 | [humanizer](https://github.com/blader/humanizer) | Removes AI writing patterns from prose; auto-invoked on `.md` files |
 | [google-agents-cli](https://docs.anthropic.com/en/docs/claude-code/plugins) | Google Cloud agent tooling (project plugin) |
+| [caveman](https://github.com/JuliusBrussee/caveman) | Compressed caveman-style responses; cuts output tokens ~65-75% |
 
 ## Agentic development
 
@@ -54,7 +55,7 @@ The `Stop` hook is the important one. It's enforcement, not a reminder.
 Clone directly into the skills directory:
 
 ```bash
-git clone https://github.com/quidmonkey/python-project-skill \
+git clone git@github.com:quidmonkey/python-project-skill.git \
   ~/.claude/skills/python-gcp-agentic-project-skill
 ```
 
@@ -69,7 +70,7 @@ create a new python project called my-api
 Or invoke directly:
 
 ```
-/python-gcp-project my-api
+/python-gcp-agentic-project-skill my-api
 ```
 
 Claude will ask whether you want a single package or monorepo layout, then scaffold the entire project.
@@ -83,10 +84,10 @@ Claude will ask whether you want a single package or monorepo layout, then scaff
 
 ## Notes
 
-The [templates/](./templates/) directory holds the actual opinions: what tools to use, how to configure them, what to tell the AI agent. They reflect two decades of experience across startups and enterprise and are meant as a baseline, not a straitjacket.
+The [templates/](./templates/) directory holds the actual opinions: what tools to use, how to configure them, what to tell the AI agent. They come from two decades across startups and enterprise, meant as a baseline, not a straitjacket.
 
-A few deliberate choices worth noting:
-- Everything installs locally via `uv` — no global deps, no version conflicts
+A few deliberate choices:
+- Everything installs locally via `uv`, no global deps, no version conflicts
 - `uv.lock` is committed so installs are reproducible
 - Documentation lives in the repo (`docs/`) so the AI agent can read and update it
 - Setup is intentionally minimal; context overload makes agents worse, not better
