@@ -79,8 +79,10 @@ Read each template from `~/.claude/skills/python-gcp-agentic-project-skill/templ
 | `templates/.gitignore` | `.gitignore` | write |
 
 ```bash
-mkdir -p .claude docs
+mkdir -p .claude docs working
 ```
+
+`working/` holds dirty files needed during development but never committed. The `.gitignore` template excludes it.
 
 ## Step 5: Install project skills
 
@@ -108,5 +110,6 @@ uv run pre-commit install
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
 - Docs: `docs/design.md`, `docs/design.mmd`, `docs/finops.md`, `docs/infra.md`
+- Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `humanizer` (`.claude/skills/humanizer`), `caveman` (plugin auto-enabled via `.claude/settings.json`), `google-agents-cli` (project plugin — only if install above succeeded)
 - Commands: `uv run pytest`, `uv run pre-commit run --all-files`, `uv run pre-commit autoupdate`
