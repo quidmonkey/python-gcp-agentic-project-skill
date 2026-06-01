@@ -21,7 +21,7 @@
           },
           {
             "type": "command",
-            "command": "git status --porcelain 2>/dev/null | grep -q 'docs/design.md' && echo 'DOCS SYNC NEEDED: docs/design.md was modified — update docs/design.mmd and docs/finops.md to match' || true"
+            "command": "git status --porcelain 2>/dev/null | grep -q 'docs/design.md' && echo 'DOCS SYNC NEEDED: docs/design.md was modified — update docs/design.mmd{{gcp-sync-files}} to match' || true"
           }
         ]
       }

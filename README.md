@@ -1,6 +1,6 @@
 # python-gcp-agentic-project-skill
 
-A Claude Code skill that scaffolds GCP-based Python projects with `uv`. One command wires linting, type checking, security scanning, and tests into pre-commit. It also drops agent instruction files that stop Claude from skipping those checks when writing code.
+A Claude Code skill that scaffolds Python projects with `uv`. One command wires linting, type checking, security scanning, and tests into pre-commit. It also drops agent instruction files that stop Claude from skipping those checks when writing code. GCP projects get extra cost and infra docs; the skill asks at setup.
 
 ## What it creates
 
@@ -8,7 +8,7 @@ A Claude Code skill that scaffolds GCP-based Python projects with `uv`. One comm
 my-project/
 ├── .claude/
 │   └── settings.json        # Stop hook: runs pre-commit + detects docs/design.md changes
-├── docs/                    # design.md, design.mmd, finops.md, infra.md
+├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
 ├── .pre-commit-config.yaml  # all hooks configured
 ├── .gitignore
@@ -46,7 +46,7 @@ Complexity is enforced via ruff's built-in C90 (McCabe) rules rather than a sepa
 
 Two files keep AI agents honest after they write code.
 
-`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` and `docs/finops.md`.
+`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` (and `docs/finops.md` on GCP projects).
 
 The `Stop` hook is the important one. It's enforcement, not a reminder.
 

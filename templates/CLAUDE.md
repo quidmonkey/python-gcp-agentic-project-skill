@@ -102,10 +102,9 @@ Also verify:
 Project docs live in `docs/`:
 - `design.md` — RFC; defines architecture and design decisions
 - `design.mmd` — Mermaid diagram of the design
-- `finops.md` — GCP cost analysis for the design
-- `infra.md` — CI pipeline, IAM accounts and roles
+{{gcp-doc-lines}}
 
-**Sync rule**: After editing `docs/design.md`, update `docs/design.mmd` and `docs/finops.md` to reflect the changes before reporting done.
+**Sync rule**: After editing `docs/design.md`, update `docs/design.mmd`{{gcp-sync-files}} to reflect the changes before reporting done.
 
 ## Writing prose and markdown
 

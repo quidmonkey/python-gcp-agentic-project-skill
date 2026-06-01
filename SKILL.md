@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.1.0
+version: 2.2.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -21,7 +21,7 @@ allowed-tools:
 Scaffold a Python project with ruff, ty, bandit, pytest, pre-commit, and agent instruction files.
 
 Templates: `~/.claude/skills/python-gcp-agentic-project-skill/templates/`
-Placeholders: `{{project-name}}`, `{{package_name}}`, `{{code-dir}}`, `{{test-dir}}`, `{{layout-line}}`
+Placeholders: `{{project-name}}`, `{{package_name}}`, `{{code-dir}}`, `{{test-dir}}`, `{{layout-line}}`, `{{gcp-doc-lines}}`, `{{gcp-sync-files}}`
 
 ## Step 1: Gather inputs
 
@@ -33,10 +33,18 @@ Ask layout via `AskUserQuestion`:
 
 Derive `{{package_name}}`: lowercase, hyphens → underscores.
 
+Ask "GCP project?" via `AskUserQuestion` (yes/no). This controls whether GCP cost/infra docs and the GCP doc-sync rules are included.
+
 Set variables:
 - `{{code-dir}}`: `src` (single) or `packages` (monorepo)
 - `{{test-dir}}`: `tests` (single) or `packages` (monorepo)
 - `{{layout-line}}`: `src/{{package_name}}/` with `tests/` (single) or `packages/{{package_name}}/` with `packages/{{package_name}}/tests/` (monorepo)
+- `{{gcp-doc-lines}}`: if GCP, the two-line block below; if non-GCP, empty string (and drop the blank line that follows it).
+  ```
+  - `finops.md` — GCP cost analysis for the design
+  - `infra.md` — CI pipeline, IAM accounts and roles
+  ```
+- `{{gcp-sync-files}}`: if GCP, `` and `docs/finops.md` ``; if non-GCP, empty string.
 
 ## Step 2: Create project
 
@@ -66,6 +74,10 @@ uv add --dev ruff ty "bandit[toml]" pytest pre-commit
 
 Read each template from `~/.claude/skills/python-gcp-agentic-project-skill/templates/`, substitute all placeholders, write to destination.
 
+Notes:
+- `uv init` pre-creates `.gitignore` and `README.md`. To overwrite, Read the existing file first (the harness blocks overwrite-without-read), then Write.
+- `pyproject-additions.toml` is appended, so it must start with a `[table]` header. Never add a bare top-level key (e.g. `requires-python`) at its top — it would leak into the last existing table (`[dependency-groups]`) and break the parse. `uv init` already sets `requires-python` in `[project]`.
+
 | Template | Destination | Mode |
 |----------|------------|------|
 | `templates/pre-commit-config.yaml` | `.pre-commit-config.yaml` | write |
@@ -74,9 +86,11 @@ Read each template from `~/.claude/skills/python-gcp-agentic-project-skill/templ
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
 | `templates/docs/design.mmd` | `docs/design.mmd` | write |
-| `templates/docs/finops.md` | `docs/finops.md` | write |
-| `templates/docs/infra.md` | `docs/infra.md` | write |
+| `templates/docs/finops.md` | `docs/finops.md` | write — **GCP only** |
+| `templates/docs/infra.md` | `docs/infra.md` | write — **GCP only** |
 | `templates/.gitignore` | `.gitignore` | write |
+
+Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
 mkdir -p .claude docs working
@@ -109,7 +123,7 @@ uv run pre-commit install
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
-- Docs: `docs/design.md`, `docs/design.mmd`, `docs/finops.md`, `docs/infra.md`
+- Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `humanizer` (`.claude/skills/humanizer`), `caveman` (plugin auto-enabled via `.claude/settings.json`), `google-agents-cli` (project plugin — only if install above succeeded)
 - Commands: `uv run pytest`, `uv run pre-commit run --all-files`, `uv run pre-commit autoupdate`
