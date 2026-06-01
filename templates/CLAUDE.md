@@ -109,6 +109,6 @@ Project docs live in `docs/`:
 
 ## Writing prose and markdown
 
-When writing or updating any `.md` or text file (prose, READMEs, design docs), invoke `/humanizer` on the draft before reporting done. Exception: `docs/design.mmd` (Mermaid syntax) and any file that is primarily code or structured data. Does not apply to code comments, commit messages, or PR descriptions.
+When writing or updating any `.md` or text file (prose, READMEs, design docs), invoke `/humanizer` on the draft before reporting done. Exception: `docs/design.mmd` (Mermaid syntax) and any file that is primarily code or structured data. Does not apply to code comments, commit messages, or PR descriptions. Does not apply to plan or implementation markdown files (e.g. plan docs, implementation specs/notes) — these are meant for AI consumption and don't need humanizing.
 
 Keep prose concise. Prefer short sentences. Cut filler words and redundant phrases. One idea per sentence.
