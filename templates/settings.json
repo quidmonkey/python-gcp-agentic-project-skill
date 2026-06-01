@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILES=$( { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u | while read -r f; do [ -e \"$f\" ] && echo \"$f\"; done); if [ -n \"$FILES\" ]; then echo \"$FILES\" | xargs uv run pre-commit run --files 2>&1; else uv run pre-commit run --all-files 2>&1; fi"
+            "command": "FILES=$( { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u | while read -r f; do [ -e \"$f\" ] && echo \"$f\"; done); if [ -n \"$FILES\" ]; then echo \"$FILES\" | xargs uv run pre-commit run --files; else uv run pre-commit run --all-files; fi; exit 0"
           },
           {
             "type": "command",
