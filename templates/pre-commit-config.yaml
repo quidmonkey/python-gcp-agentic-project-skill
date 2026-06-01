@@ -36,7 +36,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: bash -c 'echo > /dev/tty; uv run --no-sync pytest {{test-dir}} --tb=short -v > /dev/tty 2>&1'
+        entry: uv run --no-sync pytest {{test-dir}} --tb=short
         language: system
         pass_filenames: false
         stages: [pre-push]

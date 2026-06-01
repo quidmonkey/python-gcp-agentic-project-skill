@@ -59,7 +59,7 @@ touch packages/{{package_name}}/__init__.py packages/{{package_name}}/tests/__in
 ## Step 3: Add dev dependencies
 
 ```bash
-uv add --dev ruff ty bandit pytest pre-commit
+uv add --dev ruff ty "bandit[toml]" pytest pre-commit
 ```
 
 ## Step 4: Write config files
@@ -89,6 +89,11 @@ git clone --depth 1 https://github.com/blader/humanizer .claude/skills/humanizer
 claude plugin install google-agents-cli --scope project 2>/dev/null || true
 ```
 
+`humanizer` is vendored and always lands. `google-agents-cli` is best-effort: the
+install no-ops unless its marketplace is already registered. Report it as installed
+only if the command above succeeded; otherwise tell the user to add the marketplace
+first.
+
 ## Step 6: Init git and install pre-commit hooks
 
 ```bash
@@ -103,5 +108,5 @@ uv run pre-commit install
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
 - Docs: `docs/design.md`, `docs/design.mmd`, `docs/finops.md`, `docs/infra.md`
-- Skills: `humanizer` (`.claude/skills/humanizer`), `google-agents-cli` (project plugin)
+- Skills: `humanizer` (`.claude/skills/humanizer`), `caveman` (plugin auto-enabled via `.claude/settings.json`), `google-agents-cli` (project plugin — only if install above succeeded)
 - Commands: `uv run pytest`, `uv run pre-commit run --all-files`, `uv run pre-commit autoupdate`

@@ -39,8 +39,8 @@ Complexity is enforced via ruff's built-in C90 (McCabe) rules rather than a sepa
 | Skill | Source |
 |-------|--------|
 | [humanizer](https://github.com/blader/humanizer) | Removes AI writing patterns from prose; auto-invoked on `.md` files |
-| [google-agents-cli](https://docs.anthropic.com/en/docs/claude-code/plugins) | Google Cloud agent tooling (project plugin) |
-| [caveman](https://github.com/JuliusBrussee/caveman) | Compressed caveman-style responses; cuts output tokens ~65-75% |
+| [google-agents-cli](https://docs.anthropic.com/en/docs/claude-code/plugins) | Google Cloud agent tooling (project plugin; installs only if its marketplace is registered) |
+| [caveman](https://github.com/JuliusBrussee/caveman) | Compressed caveman-style responses; cuts output tokens ~75% |
 
 ## Agentic development
 
@@ -55,7 +55,7 @@ The `Stop` hook is the important one. It's enforcement, not a reminder.
 Clone directly into the skills directory:
 
 ```bash
-git clone git@github.com:quidmonkey/python-project-skill.git \
+git clone git@github.com:quidmonkey/python-gcp-agentic-project-skill.git \
   ~/.claude/skills/python-gcp-agentic-project-skill
 ```
 
