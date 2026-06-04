@@ -84,6 +84,7 @@ Notes:
 | `templates/pyproject-additions.toml` | `pyproject.toml` | append |
 | `templates/CLAUDE.md` | `CLAUDE.md` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
+| `templates/Makefile` | `Makefile` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
 | `templates/docs/design.mmd` | `docs/design.mmd` | write |
 | `templates/docs/finops.md` | `docs/finops.md` | write — **GCP only** |
@@ -126,4 +127,5 @@ uv run pre-commit install
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `humanizer` (`.claude/skills/humanizer`), `caveman` (plugin auto-enabled via `.claude/settings.json`), `google-agents-cli` (project plugin — only if install above succeeded)
-- Commands: `uv run pytest`, `uv run pre-commit run --all-files`, `uv run pre-commit autoupdate`
+- Commands: `make setup` (post-clone), `make test`, `make lint`, `make check`, `uv run pre-commit autoupdate`
+- Team onboarding: clone repo, run `make setup` — installs deps, pre-commit hooks, and skills
