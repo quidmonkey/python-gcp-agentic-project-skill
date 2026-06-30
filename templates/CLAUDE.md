@@ -9,6 +9,14 @@
 - Complexity: ruff C90 (McCabe, max 10)
 - Tests: pytest
 
+## Response style
+
+Be terse. Lead with the answer or the code, then at most a few lines of why. Drop pleasantries, hedging, and filler. Fragments are fine. One idea per sentence.
+
+Stay fully explicit — never terse — for security warnings, confirmations of destructive or irreversible actions, and multi-step instructions where order matters.
+
+Code, commit messages, and PR descriptions are written normally.
+
 ## Running tools
 
 Always prefix with `uv run`:
@@ -33,6 +41,20 @@ uv run pre-commit run --all-files
 - Prefer composition over duplication
 - Prefer modular and functional style over OOP
 - Avoid over-abstraction unless reuse >= 2
+
+**Reach for the laziest solution that works.** Before writing code, climb this ladder and stop at the first rung that holds:
+1. Does it need to exist? Speculative need → skip it, say so.
+2. Already in this codebase? Reuse the existing helper / util / type / pattern.
+3. Stdlib does it? Use it.
+4. Native platform or framework feature covers it? Use it over a new dependency.
+5. Already-installed dependency solves it? Use it — don't add one for a few lines.
+6. Can it be one line? One line.
+7. Only then: the minimum code that works.
+
+- No speculative abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.
+- Deletion over addition. Boring over clever.
+- Bug fix = root cause: grep every caller and fix the shared function once, not just the path the report names.
+- Mark a deliberate shortcut with a comment naming the ceiling and the upgrade path.
 
 ## Design and architecture proposals
 

@@ -4,17 +4,6 @@
       "Bash(make *)"
     ]
   },
-  "enabledPlugins": {
-    "caveman@caveman": true
-  },
-  "extraKnownMarketplaces": {
-    "caveman": {
-      "source": {
-        "source": "github",
-        "repo": "JuliusBrussee/caveman"
-      }
-    }
-  },
   "hooks": {
     "Stop": [
       {
