@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.3.0
+version: 2.4.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -102,14 +102,13 @@ mkdir -p .claude docs working
 ## Step 5: Install project skills
 
 ```bash
-git clone --depth 1 https://github.com/blader/humanizer .claude/skills/humanizer
 claude plugin install google-agents-cli --scope project 2>/dev/null || true
 ```
 
-`humanizer` is vendored and always lands. `google-agents-cli` is best-effort: the
-install no-ops unless its marketplace is already registered. Report it as installed
-only if the command above succeeded; otherwise tell the user to add the marketplace
-first.
+Humanizing is baked into `CLAUDE.md` directly (no `humanizer` skill needed).
+`google-agents-cli` is best-effort: the install no-ops unless its marketplace is
+already registered. Report it as installed only if the command above succeeded;
+otherwise tell the user to add the marketplace first.
 
 ## Step 6: Init git and install pre-commit hooks
 
@@ -126,6 +125,6 @@ uv run pre-commit install
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
-- Skills: `humanizer` (`.claude/skills/humanizer`), `google-agents-cli` (project plugin — only if install above succeeded)
+- Skills: `google-agents-cli` (project plugin — only if install above succeeded). Humanizing is baked into `CLAUDE.md`, no skill needed.
 - Commands: `make setup` (post-clone), `make test`, `make lint`, `make check`, `uv run pre-commit autoupdate`
-- Team onboarding: clone repo, run `make setup` — installs deps, pre-commit hooks, and skills
+- Team onboarding: clone repo, run `make setup` — installs deps and pre-commit hooks

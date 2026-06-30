@@ -130,6 +130,20 @@ Project docs live in `docs/`:
 
 ## Writing prose and markdown
 
-When writing or updating any `.md` or text file (prose, READMEs, design docs), invoke `/humanizer` on the draft before reporting done. Exception: `docs/design.mmd` (Mermaid syntax) and any file that is primarily code or structured data. Does not apply to code comments, commit messages, or PR descriptions. Does not apply to plan or implementation markdown files (e.g. plan docs, implementation specs/notes) — these are meant for AI consumption and don't need humanizing.
+When writing or updating any `.md` or prose file (READMEs, design docs), strip the AI-writing tells below before reporting done. Skip: `docs/design.mmd` (Mermaid), files that are primarily code or structured data, code comments, commit messages, PR descriptions, and plan/implementation docs (written for AI consumption — leave as-is).
 
-Keep prose concise. Prefer short sentences. Cut filler words and redundant phrases. One idea per sentence.
+Remove these tells:
+- **Significance inflation** — "testament to", "pivotal/crucial/vital role", "marks a turning point", "evolving landscape", "underscores its importance".
+- **Promotional tone** — "boasts", "vibrant", "rich", "nestled", "in the heart of", "breathtaking", "renowned", "stunning".
+- **Superficial -ing tails** — "...highlighting/showcasing/reflecting/ensuring/fostering X" tacked on for fake depth.
+- **Vague attribution** — "experts argue", "observers note", "industry reports" with no named source.
+- **AI vocabulary** — additionally, delve, leverage, crucial, enhance, intricate, landscape, tapestry, testament, underscore, seamless.
+- **Copula avoidance** — "serves as / stands as / functions as" → use "is / are / has".
+- **Negative parallelism** — "not just X, but Y", "it's not merely… it's…".
+- **Forced rule of three** — triplets for the sake of it ("innovation, inspiration, and insights").
+- **Formulaic structure** — "Challenges and Future Prospects" sections, generic upbeat conclusions.
+- **Style tics** — em-dash overuse, mechanical boldface, inline-header bullet lists, Title Case headings, emojis, curly quotes.
+- **Chatbot artifacts** — "Great question!", "I hope this helps", "Let me know if…", knowledge-cutoff disclaimers.
+- **Filler / hedging** — "in order to" → "to", "due to the fact that" → "because", "could potentially possibly".
+
+Then: prefer specific facts over vague claims, vary sentence length, one idea per sentence. Read it aloud — if it sounds like a press release, rewrite.
