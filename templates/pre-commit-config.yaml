@@ -44,6 +44,14 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      - id: run-check
+        name: app run check
+        entry: make run-check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: code-review
         name: agentic code review (two-pass)
         entry: bash scripts/code-review.sh

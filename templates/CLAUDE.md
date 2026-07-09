@@ -92,6 +92,22 @@ uv run pre-commit run --all-files
 
 Use `--files` during iteration. Use `--all-files` before reporting a task complete.
 
+### Verify the app runs
+
+After writing or changing code, run the app to confirm it still starts:
+
+```bash
+make run-check
+```
+
+This is standard operating procedure, not a test. Run it before reporting a task complete, alongside pre-commit. It also runs on `git push`.
+
+Keep the target honest:
+- The scaffolded command is an import check — a placeholder, acceptable only while the project has no entry point.
+- When you add or change the app's entry point (CLI command, server boot, job main), update `make run-check` in the same change so it exercises the real startup path: a CLI gets `--help` or a dry-run invocation; a server gets start + health probe + teardown.
+- The command must exit non-zero on failure, finish in under 30 seconds, and need no external services or credentials.
+- If `make run-check` fails, fix the startup breakage before anything else — the app not running invalidates all other work.
+
 Fix all failures at root cause. Rules:
 - Never use `--no-verify` or `--skip`
 - Never disable lint rules to silence failures

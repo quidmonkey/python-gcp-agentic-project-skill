@@ -13,13 +13,16 @@ This installs dependencies with `uv` and the git hooks with `pre-commit` (both t
 ## Everyday commands
 
 ```bash
-make test     # run pytest
-make lint     # run all pre-commit hooks
-make check    # ruff + ty
-make review   # run the code review manually (also runs on git push)
+make test       # run pytest
+make lint       # run all pre-commit hooks
+make check      # ruff + ty
+make run-check  # confirm the app still starts (also runs on git push)
+make review     # run the code review manually (also runs on git push)
 ```
 
 Tools run through `uv run`, so nothing needs to be installed globally.
+
+`make run-check` starts as an import check. Once the project has a real entry point (CLI, server, job), update the target so it exercises actual startup — the pre-push hook runs it, and agents working in this repo run it after every code change.
 
 ## Code review on push
 
