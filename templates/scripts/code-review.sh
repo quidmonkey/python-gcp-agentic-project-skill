@@ -24,7 +24,13 @@ case "${SKIP_CODE_REVIEW:-}" in
         ;;
 esac
 
-rc_get() { sed -n "s/^$1=//p" "$rc_file" 2>/dev/null | tail -n 1; }
+# key=value, one per line. Strips inline comments (whitespace then #) and
+# surrounding whitespace, so a line copied with its trailing comment parses.
+rc_get() {
+    sed -n "s/^$1=//p" "$rc_file" 2>/dev/null | tail -n 1 \
+        | sed -e 's/[[:space:]][[:space:]]*#.*$//' \
+              -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
 
 agent=$(rc_get agent)
 agent=${agent:-claude}
@@ -37,61 +43,65 @@ if [ "$enabled" = "false" ]; then
     exit 0
 fi
 
-# --- agent presets -----------------------------------------------------------
-# Each preset reads the prompt as $1, prints the review to stdout, and the
-# review must end with "VERDICT: PASS" or "VERDICT: FAIL". Adjust flags here
-# if your agent CLI's syntax changes, or use agent=custom with command= in
-# .codereviewrc (the custom command receives the prompt on stdin).
+# --- agent validation ---------------------------------------------------------
+# Misconfiguration fails closed: a bad rc file must block the push and surface,
+# not silently disable the gate. Only a missing CLI for a valid agent fails
+# open, so one machine without the tool doesn't block everyone's pushes.
 
+case "$agent" in
+    claude) ;;
+    custom)
+        if [ -z "$custom_cmd" ]; then
+            echo "ERROR: agent=custom requires command= in $rc_file — blocking push." >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "ERROR: unknown agent '$agent' in $rc_file (claude | custom) — blocking push." >&2
+        exit 1
+        ;;
+esac
+
+if [ "$agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
+    echo "WARNING: 'claude' not found — skipping code review (fail-open)." >&2
+    echo "Install it, or set agent=custom with command= in $rc_file." >&2
+    exit 0
+fi
+
+# run_agent reads the prompt as $1 and prints the review to stdout; the review
+# must end with "VERDICT: PASS" or "VERDICT: FAIL" as its final line. A custom
+# command receives the prompt on stdin instead.
 run_agent() {
-    local prompt=$1
     case "$agent" in
         claude)
-            claude -p "$prompt" \
+            claude -p "$1" \
                 --allowed-tools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
             ;;
-        codex)
-            codex exec --sandbox read-only "$prompt"
-            ;;
-        gemini)
-            gemini -p "$prompt"
-            ;;
-        copilot)
-            copilot -p "$prompt" \
-                --allow-tool 'shell(git diff*)' --allow-tool 'shell(git log*)' --allow-tool 'shell(git show*)'
-            ;;
-        pi)
-            pi -p "$prompt"
-            ;;
         custom)
-            if [ -z "$custom_cmd" ]; then
-                echo "agent=custom requires command= in $rc_file" >&2
-                return 1
-            fi
-            printf '%s\n' "$prompt" | sh -c "$custom_cmd"
-            ;;
-        *)
-            echo "Unknown agent '$agent' in $rc_file (claude|codex|gemini|copilot|pi|custom)" >&2
-            return 1
+            printf '%s\n' "$1" | sh -c "$custom_cmd"
             ;;
     esac
 }
 
-agent_bin=$agent
-[ "$agent" = "custom" ] && agent_bin=${custom_cmd%% *}
-if ! command -v "$agent_bin" >/dev/null 2>&1; then
-    echo "WARNING: '$agent_bin' not found — skipping code review (fail-open)." >&2
-    echo "Install it, or set agent/command in $rc_file." >&2
-    exit 0
-fi
-
 # --- diff range --------------------------------------------------------------
 
-branch=$(git rev-parse --abbrev-ref HEAD)
-ledger="$(git rev-parse --git-dir)/code-review-ledger"
-
-# Empty-tree hash: diff base for a repo's very first push.
+zero_sha=0000000000000000000000000000000000000000
+# Empty-tree hash: diff base for a brand-new repository's first push.
 empty_tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+
+# Under pre-push, pre-commit exports the refs being pushed; prefer them so the
+# review covers what actually goes to the remote, not the checked-out branch.
+# Pin HEAD once up front: the passes run minutes apart, and a commit made
+# mid-review must never be recorded as reviewed.
+to_ref="${PRE_COMMIT_TO_REF:-}"
+if [ "$to_ref" = "$zero_sha" ]; then
+    echo "Ref deletion — nothing to review."
+    exit 0
+fi
+head_sha=${to_ref:-$(git rev-parse HEAD)}
+branch="${PRE_COMMIT_LOCAL_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
+branch=${branch#refs/heads/}
+ledger="$(git rev-parse --git-dir)/code-review-ledger"
 
 default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
 default_branch=${default_branch:-main}
@@ -99,27 +109,44 @@ default_branch=${default_branch:-main}
 last_reviewed=""
 [ -f "$ledger" ] && last_reviewed=$(awk -v b="$branch" '$1 == b { print $2 }' "$ledger")
 
-if [ -n "$last_reviewed" ] && git merge-base --is-ancestor "$last_reviewed" HEAD 2>/dev/null; then
-    # Branch reviewed before: only new commits since the last passing review.
-    range="$last_reviewed..HEAD"
-elif [ "$branch" = "$default_branch" ]; then
-    # Pushing the default branch: review the commits being pushed.
-    from_ref="${PRE_COMMIT_FROM_REF:-}"
-    case "$from_ref" in
-        "" | 0000000000000000000000000000000000000000)
-            from_ref=$(git rev-parse -q --verify HEAD~1 || echo "$empty_tree")
-            ;;
-    esac
-    range="$from_ref..HEAD"
-else
-    # First review of a feature branch: the whole branch vs the default branch.
-    base=$(git merge-base "origin/$default_branch" HEAD 2>/dev/null \
-        || git merge-base "$default_branch" HEAD 2>/dev/null \
-        || echo "$empty_tree")
-    range="$base..HEAD"
+from_ref="${PRE_COMMIT_FROM_REF:-}"
+[ "$from_ref" = "$zero_sha" ] && from_ref=""
+# A remote sha we don't have locally (diverged force-push) can't be a base.
+if [ -n "$from_ref" ] && ! git cat-file -e "$from_ref" 2>/dev/null; then
+    from_ref=""
 fi
 
-if [ -z "$(git diff --name-only "$range" 2>/dev/null)" ]; then
+if [ -n "$last_reviewed" ] && git merge-base --is-ancestor "$last_reviewed" "$head_sha" 2>/dev/null; then
+    # Reviewed before: only new commits since the last passing review.
+    base=$last_reviewed
+elif [ -n "$from_ref" ]; then
+    # pre-push: exactly the commits the remote doesn't have yet.
+    base=$from_ref
+elif [ -z "$to_ref" ] && base=$(git rev-parse -q --verify '@{upstream}' 2>/dev/null); then
+    # Manual run (make review): everything not yet pushed upstream.
+    :
+elif base=$(git merge-base "origin/$default_branch" "$head_sha" 2>/dev/null) \
+    || base=$(git merge-base "$default_branch" "$head_sha" 2>/dev/null); then
+    # First review of a branch: the whole branch vs the default branch.
+    :
+elif [ -z "$(git for-each-ref refs/remotes)" ]; then
+    # Brand-new repository with no remote branches: everything is new.
+    base=$empty_tree
+else
+    echo "ERROR: cannot determine a review base — branch '$default_branch' not found." >&2
+    echo "Set the remote default branch (git remote set-head origin -a) and retry." >&2
+    exit 1
+fi
+range="$base..$head_sha"
+
+# An error here must block, not skip: an unresolvable range looks identical to
+# an empty diff on stdout, and silence would wave unreviewed commits through.
+if ! changed=$(git diff --name-only "$range" 2>&1); then
+    echo "ERROR: git diff $range failed — blocking push (cannot tell what is unreviewed):" >&2
+    echo "$changed" >&2
+    exit 1
+fi
+if [ -z "$changed" ]; then
     echo "No unreviewed changes in $range — skipping code review."
     exit 0
 fi
@@ -137,7 +164,8 @@ mkdir -p working
 } > "$report"
 
 # run_pass <title> <prompt> — appends the agent's output to the report.
-# Returns 0 only if the output contains "VERDICT: PASS".
+# Returns 0 only if the FINAL line of the output is "VERDICT: PASS" — a
+# verdict quoted or drafted mid-output must not count.
 run_pass() {
     local title=$1 prompt=$2 output status
     echo ""
@@ -154,7 +182,7 @@ run_pass() {
         echo "Agent failed (exit $status) during $title — see $report" >&2
         return 1
     fi
-    printf '%s\n' "$output" | grep -q '^VERDICT: PASS[[:space:]]*$'
+    printf '%s\n' "$output" | tail -n 1 | grep -q '^VERDICT: PASS[[:space:]]*$'
 }
 
 # read -d '' (not $(cat <<EOF)): bash 3.2 mis-parses quotes inside heredocs
@@ -183,8 +211,9 @@ Use REQUIRED only for findings that must be fixed before this code merges.
 Use SUGGESTED for improvements the code could reasonably ship without.
 If there are no findings, say so.
 
-Your final line must be exactly \`VERDICT: PASS\` if there are no REQUIRED
-findings, otherwise exactly \`VERDICT: FAIL\`.
+End with your verdict on its own line, as plain text with no backticks or
+other formatting. The final line must be exactly VERDICT: PASS if there are
+no REQUIRED findings, otherwise exactly VERDICT: FAIL.
 EOF
 
 read -r -d '' pass2_prompt <<EOF || true
@@ -209,8 +238,9 @@ Report every finding as a markdown bullet:
 
 If there are no findings, say so.
 
-Your final line must be exactly \`VERDICT: PASS\` if there are no REQUIRED
-findings, otherwise exactly \`VERDICT: FAIL\`.
+End with your verdict on its own line, as plain text with no backticks or
+other formatting. The final line must be exactly VERDICT: PASS if there are
+no REQUIRED findings, otherwise exactly VERDICT: FAIL.
 EOF
 
 pass1_ok=0
@@ -222,7 +252,7 @@ echo ""
 if [ "$pass1_ok" = 1 ] && [ "$pass2_ok" = 1 ]; then
     tmp=$(mktemp)
     [ -f "$ledger" ] && awk -v b="$branch" '$1 != b' "$ledger" > "$tmp"
-    echo "$branch $(git rev-parse HEAD)" >> "$tmp"
+    echo "$branch $head_sha" >> "$tmp"
     mv "$tmp" "$ledger"
     echo "Code review PASSED. Recorded for '$branch' — only new commits will be reviewed next push."
     echo "Report: $report"

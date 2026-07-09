@@ -40,12 +40,12 @@ Reviews are incremental. After a passing review, the reviewed commit is recorded
 `.codereviewrc` in the repo root:
 
 ```
-agent=claude      # claude | codex | gemini | copilot | pi | custom
+agent=claude      # claude | custom
 enabled=true      # false disables the review
 # command=...     # for agent=custom: reads the prompt on stdin, prints the review
 ```
 
-A custom command must end its output with a line reading `VERDICT: PASS` or `VERDICT: FAIL`. If the agent CLI isn't installed, the hook warns and lets the push through rather than blocking everyone without it.
+A custom command must end its output with a final line reading `VERDICT: PASS` or `VERDICT: FAIL`. If the `claude` CLI isn't installed, the hook warns and lets the push through rather than blocking everyone without it; a misconfigured `.codereviewrc` (unknown agent, `custom` without `command=`) blocks the push instead.
 
 ### Skipping a review
 

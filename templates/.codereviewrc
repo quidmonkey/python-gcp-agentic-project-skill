@@ -1,7 +1,7 @@
 # Pre-push code review config (read by scripts/code-review.sh).
 # Format: key=value, one per line, no quotes.
 
-# Review agent: claude | codex | gemini | copilot | pi | custom
+# Review agent: claude | custom
 agent=claude
 
 # Set to false to disable the pre-push code review entirely.
