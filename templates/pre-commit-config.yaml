@@ -1,3 +1,6 @@
+# pre-push is required for the pytest and code-review hooks below.
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -39,4 +42,13 @@ repos:
         entry: uv run --no-sync pytest {{test-dir}} --tb=short
         language: system
         pass_filenames: false
+        stages: [pre-push]
+
+      - id: code-review
+        name: agentic code review (two-pass)
+        entry: bash scripts/code-review.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
         stages: [pre-push]

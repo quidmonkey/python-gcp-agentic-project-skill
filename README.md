@@ -9,11 +9,15 @@ my-project/
 ├── .claude/
 │   └── settings.json        # Stop hook: runs pre-commit + detects docs/design.md changes
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
+├── scripts/
+│   └── code-review.sh       # two-pass agentic code review, runs on git push
+├── .codereviewrc            # code review config: agent, enabled, custom command
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
-├── .pre-commit-config.yaml  # all hooks configured
+├── .pre-commit-config.yaml  # all hooks configured (pre-commit + pre-push stages)
 ├── .gitignore
 ├── uv.lock                  # committed; pins transitive deps for deterministic installs
 ├── CLAUDE.md                # Claude Code agent instructions
+├── README.md                # project readme, documents the code review flow
 └── src/my_package/          # single package layout
     └── __init__.py
     tests/
@@ -49,6 +53,29 @@ Two files keep AI agents honest after they write code.
 `CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse response style, a "laziest solution that works" rule (reuse and stdlib before new code, no speculative abstractions), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` (and `docs/finops.md` on GCP projects).
 
 The `Stop` hook is the important one. It's enforcement, not a reminder.
+
+## Code review on push
+
+Every scaffolded project gets a pre-push code review gate (`scripts/code-review.sh`, wired into pre-commit's pre-push stage). Pushing a branch runs an AI agent over the branch diff in two passes:
+
+1. **General review** — DRY, YAGNI, preferring existing libraries over hand-rolled code, missing tests per the project's CLAUDE.md testing rules, general best practices, and security.
+2. **Spec conformance** — reads the design docs in `docs/` and flags code that deviates from the documented intent.
+
+Findings come back as REQUIRED or SUGGESTED. Any REQUIRED finding fails the hook, blocks the push, and writes the full report to `working/code-review-report.md`. The project's CLAUDE.md tells the agent to read that report, fix REQUIRED findings at root cause, and push again.
+
+Reviews are incremental: the last passing commit for each branch is recorded in `.git/code-review-ledger`, so the next push reviews only new commits. An unchanged branch is never re-reviewed.
+
+The reviewing agent is configurable via `.codereviewrc`:
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `agent` | `claude`, `codex`, `gemini`, `copilot`, `pi`, `custom` | `claude` |
+| `enabled` | `true` / `false` | `true` |
+| `command` | shell command for `agent=custom`; receives the prompt on stdin | — |
+
+The contract is agent-agnostic: whatever runs must print its review to stdout and end with `VERDICT: PASS` or `VERDICT: FAIL`. Preset CLI flags live at the top of `code-review.sh` and are easy to adjust if a CLI's syntax changes.
+
+Escape hatches: `SKIP_CODE_REVIEW=true git push` skips one push, `enabled=false` turns it off for the repo. If the agent CLI isn't installed at all, the hook warns and fails open so teammates without it aren't blocked.
 
 ## Installation
 

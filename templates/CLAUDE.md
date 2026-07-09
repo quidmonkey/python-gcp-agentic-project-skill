@@ -105,6 +105,22 @@ Also verify:
 - Changes are minimal and localized
 - Code follows the guidelines above
 
+## Code review gate
+
+`git push` triggers a two-pass agentic code review (pre-push hook, `scripts/code-review.sh`):
+
+1. General review — DRY, YAGNI, library leverage, missing tests, best practices, security
+2. Spec conformance — the change vs the intent in `docs/`
+
+Commits are reviewed once per branch: after a passing review, only new commits are reviewed on the next push. Config lives in `.codereviewrc`.
+
+If the push is blocked by a failed review:
+1. Read `working/code-review-report.md`
+2. Fix every REQUIRED finding at root cause
+3. Commit and push again (only the new commits get re-reviewed)
+
+Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
+
 ## Testing
 
 - Add tests for critical user flows or core business logic (e.g. `utils.py` files)

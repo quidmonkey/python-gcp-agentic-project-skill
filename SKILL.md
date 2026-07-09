@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.4.0
+version: 2.5.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -83,6 +83,9 @@ Notes:
 | `templates/pre-commit-config.yaml` | `.pre-commit-config.yaml` | write |
 | `templates/pyproject-additions.toml` | `pyproject.toml` | append |
 | `templates/CLAUDE.md` | `CLAUDE.md` | write |
+| `templates/README.md` | `README.md` | write |
+| `templates/.codereviewrc` | `.codereviewrc` | write |
+| `templates/scripts/code-review.sh` | `scripts/code-review.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/Makefile` | `Makefile` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
@@ -94,7 +97,8 @@ Notes:
 Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
-mkdir -p .claude docs working
+mkdir -p .claude docs working scripts
+chmod +x scripts/code-review.sh
 ```
 
 `working/` holds dirty files needed during development but never committed. The `.gitignore` template excludes it.
@@ -118,12 +122,15 @@ git add .
 uv run pre-commit install
 ```
 
+`default_install_hook_types` in `.pre-commit-config.yaml` makes this install both the pre-commit and pre-push stages — pre-push carries the pytest and code-review hooks.
+
 ## Step 7: Report
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
+- Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`, defaults to claude); blocks the push on REQUIRED findings, report in `working/code-review-report.md`, incremental per branch
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `google-agents-cli` (project plugin — only if install above succeeded). Humanizing is baked into `CLAUDE.md`, no skill needed.
 - Commands: `make setup` (post-clone), `make test`, `make lint`, `make check`, `uv run pre-commit autoupdate`

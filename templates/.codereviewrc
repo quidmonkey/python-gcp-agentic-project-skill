@@ -1,0 +1,13 @@
+# Pre-push code review config (read by scripts/code-review.sh).
+# Format: key=value, one per line, no quotes.
+
+# Review agent: claude | codex | gemini | copilot | pi | custom
+agent=claude
+
+# Set to false to disable the pre-push code review entirely.
+enabled=true
+
+# Required when agent=custom. The command receives the review prompt on stdin
+# and must print its review to stdout, ending with a line that reads
+# "VERDICT: PASS" or "VERDICT: FAIL".
+# command=my-agent --headless
