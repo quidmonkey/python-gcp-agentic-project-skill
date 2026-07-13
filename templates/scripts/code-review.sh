@@ -267,13 +267,20 @@ finish_pass "Pass 1: general review" "$pass1_out" "$pass1_status" && pass1_ok=1
 finish_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_status" && pass2_ok=1
 
 # show_pass <title> <output-file> <ok> — prints a pass's review so the results
-# are readable in the terminal, pass or fail, not just in the report.
+# are readable in the terminal, pass or fail, not just in the report. Capped:
+# a finding-heavy review can overflow stdout, and agent harnesses truncate
+# long hook output — losing the verdict and "push blocked" lines printed
+# after the passes. The full text is always in the report.
+show_limit=100
 show_pass() {
     local verdict=FAILED
     [ "$3" = 1 ] && verdict=PASSED
     echo ""
     echo "==== $1 — $verdict ===="
-    cat "$2"
+    head -n "$show_limit" "$2"
+    if [ "$(wc -l < "$2")" -gt "$show_limit" ]; then
+        echo "[... truncated at $show_limit lines — full pass output in $report]"
+    fi
 }
 
 show_pass "Pass 1: general review" "$pass1_out" "$pass1_ok"

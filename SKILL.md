@@ -130,7 +130,7 @@ uv run pre-commit install
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
-- Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`, defaults to claude); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal, report in `working/code-review-report.md`, incremental per branch
+- Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`, defaults to claude); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
 - App run check: `make run-check` — the agent runs it after every code change per `CLAUDE.md`, and a pre-push hook runs it as a backstop; ships as an import check, to be upgraded once the app has a real entry point
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `google-agents-cli` (project plugin — only if install above succeeded). Humanizing is baked into `CLAUDE.md`, no skill needed.

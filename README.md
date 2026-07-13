@@ -65,7 +65,7 @@ Every scaffolded project gets a pre-push code review gate (`scripts/code-review.
 1. **General review** — DRY, YAGNI, preferring existing libraries over hand-rolled code, missing tests per the project's CLAUDE.md testing rules, general best practices, and security.
 2. **Spec conformance** — reads the design docs in `docs/` and flags code that deviates from the documented intent.
 
-Findings come back as REQUIRED or SUGGESTED. Both passes' findings are printed to the terminal whether the review passes or fails, and the full report is written to `working/code-review-report.md`. Any REQUIRED finding fails the hook and blocks the push. The project's CLAUDE.md tells the agent to read that report, fix REQUIRED findings at root cause, and push again.
+Findings come back as REQUIRED or SUGGESTED. Both passes' findings are printed to the terminal whether the review passes or fails, capped at 100 lines per pass so a finding-heavy review can't flood stdout; the full report is written to `working/code-review-report.md`. Any REQUIRED finding fails the hook and blocks the push. The project's CLAUDE.md tells the agent to read that report, fix REQUIRED findings at root cause, and push again.
 
 Reviews are incremental: the last passing commit for each branch is recorded in `.git/code-review-ledger`, so the next push reviews only new commits. An unchanged branch is never re-reviewed.
 
