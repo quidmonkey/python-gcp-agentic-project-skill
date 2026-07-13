@@ -60,7 +60,7 @@ Beyond lint and tests, the scaffold bakes in one operational rule: after writing
 
 ## Code review on push
 
-Every scaffolded project gets a pre-push code review gate (`scripts/code-review.sh`, wired into pre-commit's pre-push stage). Pushing a branch runs an AI agent over the branch diff in two passes:
+Every scaffolded project gets a pre-push code review gate (`scripts/code-review.sh`, wired into pre-commit's pre-push stage). Pushing a branch runs an AI agent over the branch diff in two passes, executed in parallel:
 
 1. **General review** — DRY, YAGNI, preferring existing libraries over hand-rolled code, missing tests per the project's CLAUDE.md testing rules, general best practices, and security.
 2. **Spec conformance** — reads the design docs in `docs/` and flags code that deviates from the documented intent.

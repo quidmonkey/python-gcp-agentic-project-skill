@@ -3,6 +3,7 @@
 #   Pass 1: general review — DRY, YAGNI, library leverage, missing tests,
 #           best practices, security, fit with the codebase.
 #   Pass 2: spec conformance against the documents in docs/.
+# The passes are independent and run in parallel.
 #
 # Commits are reviewed once: the last passing commit per branch is recorded in
 # .git/code-review-ledger, and later pushes review only new commits since.
@@ -163,15 +164,13 @@ mkdir -p working
     echo "- Date: $(date '+%Y-%m-%d %H:%M:%S')"
 } > "$report"
 
-# run_pass <title> <prompt> — appends the agent's output to the report.
-# Returns 0 only if the FINAL line of the output is "VERDICT: PASS" — a
-# verdict quoted or drafted mid-output must not count.
-run_pass() {
-    local title=$1 prompt=$2 output status
-    echo ""
-    echo "Running $title (this can take a few minutes)..."
-    output=$(run_agent "$prompt" 2>&1)
-    status=$?
+# finish_pass <title> <output-file> <agent-exit-status> — appends the pass
+# output to the report. Returns 0 only if the agent exited 0 and the FINAL
+# line of the output is "VERDICT: PASS" — a verdict quoted or drafted
+# mid-output must not count.
+finish_pass() {
+    local title=$1 file=$2 status=$3 output
+    output=$(cat "$file")
     {
         echo
         echo "## $title"
@@ -243,10 +242,29 @@ other formatting. The final line must be exactly VERDICT: PASS if there are
 no REQUIRED findings, otherwise exactly VERDICT: FAIL.
 EOF
 
+# The passes are independent (each only reads the diff and repo files), so run
+# them concurrently and append their report sections in order afterwards.
+pass1_out=$(mktemp)
+pass2_out=$(mktemp)
+trap 'rm -f "$pass1_out" "$pass2_out"' EXIT
+
+echo ""
+echo "Running pass 1 (general review) and pass 2 (spec conformance) in parallel"
+echo "(this can take a few minutes)..."
+run_agent "$pass1_prompt" > "$pass1_out" 2>&1 &
+pass1_pid=$!
+run_agent "$pass2_prompt" > "$pass2_out" 2>&1 &
+pass2_pid=$!
+
+pass1_status=0
+wait "$pass1_pid" || pass1_status=$?
+pass2_status=0
+wait "$pass2_pid" || pass2_status=$?
+
 pass1_ok=0
 pass2_ok=0
-run_pass "Pass 1: general review" "$pass1_prompt" && pass1_ok=1
-run_pass "Pass 2: spec conformance" "$pass2_prompt" && pass2_ok=1
+finish_pass "Pass 1: general review" "$pass1_out" "$pass1_status" && pass1_ok=1
+finish_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_status" && pass2_ok=1
 
 echo ""
 if [ "$pass1_ok" = 1 ] && [ "$pass2_ok" = 1 ]; then
