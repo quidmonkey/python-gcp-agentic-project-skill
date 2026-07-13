@@ -277,9 +277,18 @@ if [ "$pass1_ok" = 1 ] && [ "$pass2_ok" = 1 ]; then
     exit 0
 fi
 
+# show_failure <title> <output-file> — prints a failed pass's review so the
+# reason for the block is readable in the terminal, not just in the report.
+show_failure() {
+    echo ""
+    echo "==== $1 — FAILED ===="
+    cat "$2"
+}
+
 echo "Code review FAILED — push blocked."
-[ "$pass1_ok" = 1 ] || echo "  - Pass 1 (general review) found REQUIRED changes"
-[ "$pass2_ok" = 1 ] || echo "  - Pass 2 (spec conformance) found REQUIRED changes"
+[ "$pass1_ok" = 1 ] || show_failure "Pass 1: general review" "$pass1_out"
+[ "$pass2_ok" = 1 ] || show_failure "Pass 2: spec conformance" "$pass2_out"
+echo ""
 echo "Full report: $report"
 echo "Fix the REQUIRED findings, commit, and push again."
 exit 1
