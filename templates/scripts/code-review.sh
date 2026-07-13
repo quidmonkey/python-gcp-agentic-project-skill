@@ -266,6 +266,19 @@ pass2_ok=0
 finish_pass "Pass 1: general review" "$pass1_out" "$pass1_status" && pass1_ok=1
 finish_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_status" && pass2_ok=1
 
+# show_pass <title> <output-file> <ok> — prints a pass's review so the results
+# are readable in the terminal, pass or fail, not just in the report.
+show_pass() {
+    local verdict=FAILED
+    [ "$3" = 1 ] && verdict=PASSED
+    echo ""
+    echo "==== $1 — $verdict ===="
+    cat "$2"
+}
+
+show_pass "Pass 1: general review" "$pass1_out" "$pass1_ok"
+show_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_ok"
+
 echo ""
 if [ "$pass1_ok" = 1 ] && [ "$pass2_ok" = 1 ]; then
     tmp=$(mktemp)
@@ -277,18 +290,7 @@ if [ "$pass1_ok" = 1 ] && [ "$pass2_ok" = 1 ]; then
     exit 0
 fi
 
-# show_failure <title> <output-file> — prints a failed pass's review so the
-# reason for the block is readable in the terminal, not just in the report.
-show_failure() {
-    echo ""
-    echo "==== $1 — FAILED ===="
-    cat "$2"
-}
-
 echo "Code review FAILED — push blocked."
-[ "$pass1_ok" = 1 ] || show_failure "Pass 1: general review" "$pass1_out"
-[ "$pass2_ok" = 1 ] || show_failure "Pass 2: spec conformance" "$pass2_out"
-echo ""
 echo "Full report: $report"
 echo "Fix the REQUIRED findings, commit, and push again."
 exit 1
