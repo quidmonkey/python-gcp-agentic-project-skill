@@ -51,6 +51,8 @@ fix_enabled=${fix_enabled:-false}
 fix_agent=$(rc_get fix_agent)
 fix_agent=${fix_agent:-claude}
 fix_cmd=$(rc_get fix_command)
+fix_max_iterations=$(rc_get fix_max_iterations)
+fix_max_iterations=${fix_max_iterations:-2}
 
 if [ "$enabled" = "false" ]; then
     echo "Code review disabled in $rc_file — skipping."
@@ -92,6 +94,16 @@ if [ "$fix_enabled" = "true" ]; then
             exit 1
             ;;
     esac
+    case "$fix_max_iterations" in
+        '' | *[!0-9]*)
+            echo "ERROR: fix_max_iterations must be a positive integer in $rc_file — blocking push." >&2
+            exit 1
+            ;;
+    esac
+    if [ "$fix_max_iterations" -lt 1 ]; then
+        echo "ERROR: fix_max_iterations must be >= 1 in $rc_file — blocking push." >&2
+        exit 1
+    fi
 fi
 
 if [ "$review_agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
@@ -231,13 +243,51 @@ finish_pass() {
     printf '%s\n' "$output" | tail -n 1 | grep -q '^VERDICT: PASS[[:space:]]*$'
 }
 
-# read -d '' (not $(cat <<EOF)): bash 3.2 mis-parses quotes inside heredocs
-# nested in command substitutions.
-read -r -d '' pass1_prompt <<EOF || true
+# show_pass <title> <output-file> <ok> — prints a pass's review so the results
+# are readable in the terminal, pass or fail, not just in the report. Capped:
+# a finding-heavy review can overflow stdout, and agent harnesses truncate
+# long hook output — losing the verdict and "push blocked" lines printed
+# after the passes. The full text is always in the report.
+show_limit=100
+show_pass() {
+    local verdict=FAILED
+    [ "$3" = 1 ] && verdict=PASSED
+    echo ""
+    echo "==== $1 — $verdict ===="
+    head -n "$show_limit" "$2"
+    if [ "$(wc -l < "$2")" -gt "$show_limit" ]; then
+        echo "[... truncated at $show_limit lines — full pass output in $report]"
+    fi
+}
+
+# The most recent review's combined findings, refreshed by every run_review call
+# and consumed by apply_fixes. Kept in one stable file so the fixer always sees
+# the latest findings, not the whole accumulated report.
+findings_file=$(mktemp)
+trap 'rm -f "$findings_file"' EXIT
+
+# run_review runs both passes over a given scope, prints and reports the outcome,
+# and refreshes $findings_file. Called once for the initial review and again per
+# fix iteration.
+#   $1 — the argument to `git diff` naming the scope (e.g. "A..B" or "A")
+#   $2 — a one-line human description of that scope
+#   $3 — a label suffix for section titles and console lines (may be empty)
+#   $4 — extra prompt line(s) after the diff command (may be empty)
+# The passes are independent (each only reads the diff and repo files), so run
+# them concurrently and append their report sections in order. Returns 0 only if
+# both passes pass.
+run_review() {
+    local diff_arg=$1 scope_desc=$2 label=$3 extra=$4
+    local p1 p2 o1 o2 s1 s2 ok1 ok2 pid1 pid2
+
+    # read -d '' (not $(cat <<EOF)): bash 3.2 mis-parses quotes inside heredocs
+    # nested in command substitutions.
+    read -r -d '' p1 <<EOF || true
 You are performing pass 1 of 2 of a pre-push code review for this repository.
 
-Scope: the changes in git range $range. Start with:
-    git diff $range
+Scope: $scope_desc. Start with:
+    git diff $diff_arg
+$extra
 Read surrounding source files as needed for context, and read CLAUDE.md for
 this project's coding and testing guidelines.
 
@@ -262,19 +312,20 @@ other formatting. The final line must be exactly VERDICT: PASS if there are
 no REQUIRED findings, otherwise exactly VERDICT: FAIL.
 EOF
 
-read -r -d '' pass2_prompt <<EOF || true
+    read -r -d '' p2 <<EOF || true
 You are performing pass 2 of 2 of a pre-push code review for this repository:
 spec conformance.
 
-Scope: the changes in git range $range. Start with:
-    git diff $range
+Scope: $scope_desc. Start with:
+    git diff $diff_arg
+$extra
 Then read every spec document in docs/ (design.md and any others present).
 
 Check that the changed code conforms to the intent laid out in the specs:
 - Architecture and component boundaries match docs/design.md
 - Data flow and integration points match the documented design
 - Nothing contradicts documented decisions or constraints
-- If the change alters design, architecture, or public API, the docs were updated in the same range
+- If the change alters design, architecture, or public API, the docs were updated in the same change
 
 Where the specs are silent on an area, that is not a finding. Only deviations
 from documented intent count.
@@ -289,66 +340,52 @@ other formatting. The final line must be exactly VERDICT: PASS if there are
 no REQUIRED findings, otherwise exactly VERDICT: FAIL.
 EOF
 
-# The passes are independent (each only reads the diff and repo files), so run
-# them concurrently and append their report sections in order afterwards.
-pass1_out=$(mktemp)
-pass2_out=$(mktemp)
-trap 'rm -f "$pass1_out" "$pass2_out"' EXIT
-
-echo ""
-echo "Running pass 1 (general review) and pass 2 (spec conformance) in parallel"
-echo "(this can take a few minutes)..."
-run_review_agent "$pass1_prompt" > "$pass1_out" 2>&1 &
-pass1_pid=$!
-run_review_agent "$pass2_prompt" > "$pass2_out" 2>&1 &
-pass2_pid=$!
-
-pass1_status=0
-wait "$pass1_pid" || pass1_status=$?
-pass2_status=0
-wait "$pass2_pid" || pass2_status=$?
-
-pass1_ok=0
-pass2_ok=0
-finish_pass "Pass 1: general review" "$pass1_out" "$pass1_status" && pass1_ok=1
-finish_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_status" && pass2_ok=1
-
-# show_pass <title> <output-file> <ok> — prints a pass's review so the results
-# are readable in the terminal, pass or fail, not just in the report. Capped:
-# a finding-heavy review can overflow stdout, and agent harnesses truncate
-# long hook output — losing the verdict and "push blocked" lines printed
-# after the passes. The full text is always in the report.
-show_limit=100
-show_pass() {
-    local verdict=FAILED
-    [ "$3" = 1 ] && verdict=PASSED
+    o1=$(mktemp)
+    o2=$(mktemp)
     echo ""
-    echo "==== $1 — $verdict ===="
-    head -n "$show_limit" "$2"
-    if [ "$(wc -l < "$2")" -gt "$show_limit" ]; then
-        echo "[... truncated at $show_limit lines — full pass output in $report]"
-    fi
+    echo "Running pass 1 (general review) and pass 2 (spec conformance) in parallel$label"
+    echo "(this can take a few minutes)..."
+    run_review_agent "$p1" > "$o1" 2>&1 &
+    pid1=$!
+    run_review_agent "$p2" > "$o2" 2>&1 &
+    pid2=$!
+
+    s1=0
+    wait "$pid1" || s1=$?
+    s2=0
+    wait "$pid2" || s2=$?
+
+    ok1=0
+    ok2=0
+    finish_pass "Pass 1: general review$label" "$o1" "$s1" && ok1=1
+    finish_pass "Pass 2: spec conformance$label" "$o2" "$s2" && ok2=1
+    show_pass "Pass 1: general review$label" "$o1" "$ok1"
+    show_pass "Pass 2: spec conformance$label" "$o2" "$ok2"
+
+    { cat "$o1"; echo; cat "$o2"; } > "$findings_file"
+    rm -f "$o1" "$o2"
+    [ "$ok1" = 1 ] && [ "$ok2" = 1 ]
 }
 
-# apply_fixes hands the failed review's REQUIRED findings to a single fix agent
-# (both passes combined — coupled fixes and shared root causes need one coherent
-# pass, not one agent per finding). The agent edits the working tree and leaves
-# the changes uncommitted; the push stays blocked and the fixes are re-reviewed
-# on the next push. The fixer's summary is appended to the report and printed to
-# the terminal, capped like the review passes so it can't overflow and get
-# truncated.
+# apply_fixes hands the most recent review's REQUIRED findings to a single fix
+# agent (both passes combined — coupled fixes and shared root causes need one
+# coherent pass, not one agent per finding). The agent edits the working tree
+# and leaves the changes uncommitted. The fixer's summary is appended to the
+# report and printed to the terminal, capped like the review passes so it can't
+# overflow and get truncated. $1 is a label suffix for the section/console line.
+# Returns non-zero if the fixer could not run, so the loop can stop.
 apply_fixes() {
+    local label=$1 fix_prompt fix_out
     if [ "$fix_agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
         echo "WARNING: 'claude' not found — cannot auto-fix. Fix REQUIRED findings manually." >&2
-        return
+        return 1
     fi
 
-    local fix_prompt fix_out
     read -r -d '' fix_prompt <<EOF || true
 You are the fix pass of a pre-push code review for this repository.
 
-The review of the changes in git range $range failed. Read the findings in:
-    $report
+A code review of your changes failed. Read the findings in:
+    $findings_file
 and read CLAUDE.md for this project's coding and testing guidelines.
 
 Apply code fixes for every finding marked REQUIRED. Ignore SUGGESTED findings.
@@ -367,50 +404,82 @@ it — or, if unfixed, why. Keep it concise.
 EOF
 
     echo ""
-    echo "fix_enabled=true — applying fixes for REQUIRED findings with '$fix_agent'"
+    echo "fix_enabled=true — applying fixes for REQUIRED findings with '$fix_agent'$label"
     echo "(this can take a few minutes)..."
     fix_out=$(mktemp)
     run_fix_agent "$fix_prompt" > "$fix_out" 2>&1
 
     {
         echo
-        echo "## Auto-fix"
+        echo "## Auto-fix$label"
         echo
         cat "$fix_out"
     } >> "$report"
 
     echo ""
-    echo "==== Auto-fix — REQUIRED findings ===="
+    echo "==== Auto-fix$label — REQUIRED findings ===="
     head -n "$show_limit" "$fix_out"
     if [ "$(wc -l < "$fix_out")" -gt "$show_limit" ]; then
         echo "[... truncated at $show_limit lines — full fix summary in $report]"
     fi
     rm -f "$fix_out"
-
-    echo ""
-    echo "Fixes applied to the working tree (uncommitted). Review the diff, then"
-    echo "commit and push again — only the new commits will be re-reviewed."
 }
 
-show_pass "Pass 1: general review" "$pass1_out" "$pass1_ok"
-show_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_ok"
+# --- initial review ----------------------------------------------------------
+# Reviews the committed range that is actually being pushed. A pass here is the
+# only outcome that records the ledger and lets the push through.
 
-echo ""
-if [ "$pass1_ok" = 1 ] && [ "$pass2_ok" = 1 ]; then
+if run_review "$range" "the changes in git range $range" "" ""; then
     tmp=$(mktemp)
     [ -f "$ledger" ] && awk -v b="$branch" '$1 != b' "$ledger" > "$tmp"
     echo "$branch $head_sha" >> "$tmp"
     mv "$tmp" "$ledger"
+    echo ""
     echo "Code review PASSED. Recorded for '$branch' — only new commits will be reviewed next push."
     echo "Report: $report"
     exit 0
 fi
 
+echo ""
 echo "Code review FAILED — push blocked."
 echo "Full report: $report"
-if [ "$fix_enabled" = "true" ]; then
-    apply_fixes
-else
+
+if [ "$fix_enabled" != "true" ]; then
     echo "Fix the REQUIRED findings, commit, and push again."
+    exit 1
 fi
-exit 1
+
+# --- fix / re-review loop ----------------------------------------------------
+# Fixes are uncommitted, so re-reviews look at the working tree (base -> tree),
+# not the committed range. A working-tree pass is never recorded in the ledger
+# (the passing state isn't a commit) and never lets this push through: the fixes
+# must be committed and pushed, where they get one honest re-review.
+
+extra_note="Also run \`git status --porcelain\` and read any new untracked files the fixes added — they are part of the scope but will not appear in the diff above."
+iteration=1
+while :; do
+    if ! apply_fixes " (iteration $iteration)"; then
+        echo "Auto-fix could not run — push blocked. Fix the REQUIRED findings manually."
+        exit 1
+    fi
+
+    if run_review "$base" \
+        "the working tree relative to $base (your changes plus the just-applied fixes)" \
+        " (re-review $iteration)" "$extra_note"; then
+        echo ""
+        echo "Auto-fix resolved all REQUIRED findings after $iteration iteration(s)."
+        echo "The fixes are in the working tree, uncommitted — this push is still blocked."
+        echo "Review the diff, commit the fixes, and push again."
+        echo "Report: $report"
+        exit 1
+    fi
+
+    if [ "$iteration" -ge "$fix_max_iterations" ]; then
+        echo ""
+        echo "Auto-fix stopped after $iteration iteration(s) (fix_max_iterations=$fix_max_iterations) with REQUIRED findings remaining."
+        echo "Review the working tree and $report, finish the fixes, commit, and push again."
+        exit 1
+    fi
+
+    iteration=$((iteration + 1))
+done

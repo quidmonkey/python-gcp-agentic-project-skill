@@ -37,20 +37,23 @@ Reviews are incremental. After a passing review, the reviewed commit is recorded
 
 ### Auto-fix
 
-Set `fix_enabled=true` to have a failed review hand its REQUIRED findings to a fix agent. Both passes' findings go to a single fix agent — coupled fixes and shared root causes need one coherent pass, not one agent per finding. The agent edits the working tree to resolve the findings and prints a fix summary (also appended to the report). The changes are left uncommitted and the push stays blocked: review the diff, commit, and push again, where only the new commits get re-reviewed. SUGGESTED findings are left alone.
+Set `fix_enabled=true` to have a failed review hand its REQUIRED findings to a fix agent. Both passes' findings go to a single fix agent — coupled fixes and shared root causes need one coherent pass, not one agent per finding. The agent edits the working tree to resolve the findings and prints a fix summary (also appended to the report). SUGGESTED findings are left alone.
+
+After the fix pass the review runs again over the working tree, and fix -> re-review repeats until the tree passes or `fix_max_iterations` is hit. The fixes are always left uncommitted and the push always stays blocked, even once the working tree passes — the state that passed is uncommitted, not a commit, so it can't be recorded or shipped. Review the diff, commit the fixes, and push again; the committed fixes get one honest re-review and the pass is recorded then.
 
 ### Configuration
 
 `.codereviewrc` in the repo root:
 
 ```
-review_agent=claude   # claude | custom
-enabled=true          # false disables the review
-# command=...         # for review_agent=custom: reads the prompt on stdin, prints the review
+review_agent=claude    # claude | custom
+enabled=true           # false disables the review
+# command=...          # for review_agent=custom: reads the prompt on stdin, prints the review
 
-fix_enabled=false     # true auto-fixes REQUIRED findings after a failed review
-fix_agent=claude      # claude | custom
-# fix_command=...     # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
+fix_enabled=false      # true auto-fixes REQUIRED findings after a failed review
+fix_agent=claude       # claude | custom
+fix_max_iterations=2   # max fix -> re-review rounds before giving up
+# fix_command=...      # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
 ```
 
 A custom review command must end its output with a final line reading `VERDICT: PASS` or `VERDICT: FAIL`. If the `claude` CLI isn't installed, the hook warns and lets the push through rather than blocking everyone without it; a misconfigured `.codereviewrc` (unknown agent, `custom` without its command) blocks the push instead.

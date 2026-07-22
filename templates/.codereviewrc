@@ -15,15 +15,20 @@ enabled=true
 # --- Auto-fix (optional) -----------------------------------------------------
 
 # When true, a failed review hands its REQUIRED findings to a fix agent that
-# edits the working tree to resolve them. Both review passes' findings go to a
-# single fix agent (no per-issue parallelism — coupled fixes and shared root
-# causes need one coherent pass). Fixes are left uncommitted for you to review;
-# the push stays blocked. Set to false to skip fixing.
+# edits the working tree to resolve them, then re-reviews and fixes again in a
+# loop until the working tree passes or fix_max_iterations is reached. Both
+# review passes' findings go to a single fix agent (no per-issue parallelism —
+# coupled fixes and shared root causes need one coherent pass). Fixes are left
+# uncommitted; the push stays blocked so you review, commit, and push again.
+# Set to false to skip fixing.
 fix_enabled=false
 
 # Agent used to apply fixes when fix_enabled=true: claude | custom
 fix_agent=claude
 
+# Max fix -> re-review rounds before the loop gives up (positive integer).
+fix_max_iterations=2
+
 # Required when fix_agent=custom. The command receives the fix prompt (which
-# points at the findings report) on stdin and must edit the working tree.
+# points at the findings) on stdin and must edit the working tree.
 # fix_command=my-agent --headless --write
