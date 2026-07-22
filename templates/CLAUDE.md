@@ -137,9 +137,11 @@ Also verify:
 
 Commits are reviewed once per branch: after a passing review, only new commits are reviewed on the next push. Config lives in `.codereviewrc`.
 
+Optional auto-fix: set `fix_enabled=true` in `.codereviewrc` to have a failed review hand its REQUIRED findings to a single fix agent that edits the working tree and prints a fix summary. The changes are left uncommitted and the push stays blocked — review the diff, commit, and push again.
+
 If the push is blocked by a failed review:
 1. Read `working/code-review-report.md`
-2. Fix every REQUIRED finding at root cause
+2. Fix every REQUIRED finding at root cause (or review the auto-fix diff if `fix_enabled=true`)
 3. Commit and push again (only the new commits get re-reviewed)
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.

@@ -2,12 +2,28 @@
 # Format: key=value, one per line, no quotes.
 
 # Review agent: claude | custom
-agent=claude
+review_agent=claude
 
 # Set to false to disable the pre-push code review entirely.
 enabled=true
 
-# Required when agent=custom. The command receives the review prompt on stdin
-# and must print its review to stdout, ending with a line that reads
+# Required when review_agent=custom. The command receives the review prompt on
+# stdin and must print its review to stdout, ending with a line that reads
 # "VERDICT: PASS" or "VERDICT: FAIL".
 # command=my-agent --headless
+
+# --- Auto-fix (optional) -----------------------------------------------------
+
+# When true, a failed review hands its REQUIRED findings to a fix agent that
+# edits the working tree to resolve them. Both review passes' findings go to a
+# single fix agent (no per-issue parallelism — coupled fixes and shared root
+# causes need one coherent pass). Fixes are left uncommitted for you to review;
+# the push stays blocked. Set to false to skip fixing.
+fix_enabled=false
+
+# Agent used to apply fixes when fix_enabled=true: claude | custom
+fix_agent=claude
+
+# Required when fix_agent=custom. The command receives the fix prompt (which
+# points at the findings report) on stdin and must edit the working tree.
+# fix_command=my-agent --headless --write

@@ -9,7 +9,12 @@
 # .git/code-review-ledger, and later pushes review only new commits since.
 # The full report is written to working/code-review-report.md (gitignored).
 #
-# Config: .codereviewrc (key=value) — agent, enabled, command.
+# When fix_enabled=true, a failed review hands its REQUIRED findings (both
+# passes combined) to a single fix agent that edits the working tree to resolve
+# them. Fixes are left uncommitted for review; the push stays blocked.
+#
+# Config: .codereviewrc (key=value) — review_agent, enabled, command,
+#         fix_enabled, fix_agent, fix_command.
 # Skip:   SKIP_CODE_REVIEW=true git push, or enabled=false in .codereviewrc.
 set -u
 
@@ -33,11 +38,19 @@ rc_get() {
               -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
-agent=$(rc_get agent)
-agent=${agent:-claude}
+review_agent=$(rc_get review_agent)
+review_agent=${review_agent:-claude}
 enabled=$(rc_get enabled)
 enabled=${enabled:-true}
 custom_cmd=$(rc_get command)
+
+# Auto-fix: after a failed review, hand the REQUIRED findings to a fix agent
+# that edits the working tree. Off by default; fixes are left uncommitted.
+fix_enabled=$(rc_get fix_enabled)
+fix_enabled=${fix_enabled:-false}
+fix_agent=$(rc_get fix_agent)
+fix_agent=${fix_agent:-claude}
+fix_cmd=$(rc_get fix_command)
 
 if [ "$enabled" = "false" ]; then
     echo "Code review disabled in $rc_file — skipping."
@@ -49,37 +62,70 @@ fi
 # not silently disable the gate. Only a missing CLI for a valid agent fails
 # open, so one machine without the tool doesn't block everyone's pushes.
 
-case "$agent" in
+case "$review_agent" in
     claude) ;;
     custom)
         if [ -z "$custom_cmd" ]; then
-            echo "ERROR: agent=custom requires command= in $rc_file — blocking push." >&2
+            echo "ERROR: review_agent=custom requires command= in $rc_file — blocking push." >&2
             exit 1
         fi
         ;;
     *)
-        echo "ERROR: unknown agent '$agent' in $rc_file (claude | custom) — blocking push." >&2
+        echo "ERROR: unknown review_agent '$review_agent' in $rc_file (claude | custom) — blocking push." >&2
         exit 1
         ;;
 esac
 
-if [ "$agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
+# Validate the fix agent up front on the same fail-closed terms, but only when
+# auto-fix is on. A missing claude CLI is handled at fix time (fail-open).
+if [ "$fix_enabled" = "true" ]; then
+    case "$fix_agent" in
+        claude) ;;
+        custom)
+            if [ -z "$fix_cmd" ]; then
+                echo "ERROR: fix_agent=custom requires fix_command= in $rc_file — blocking push." >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "ERROR: unknown fix_agent '$fix_agent' in $rc_file (claude | custom) — blocking push." >&2
+            exit 1
+            ;;
+    esac
+fi
+
+if [ "$review_agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
     echo "WARNING: 'claude' not found — skipping code review (fail-open)." >&2
-    echo "Install it, or set agent=custom with command= in $rc_file." >&2
+    echo "Install it, or set review_agent=custom with command= in $rc_file." >&2
     exit 0
 fi
 
-# run_agent reads the prompt as $1 and prints the review to stdout; the review
-# must end with "VERDICT: PASS" or "VERDICT: FAIL" as its final line. A custom
-# command receives the prompt on stdin instead.
-run_agent() {
-    case "$agent" in
+# run_review_agent reads the prompt as $1 and prints the review to stdout; the
+# review must end with "VERDICT: PASS" or "VERDICT: FAIL" as its final line. A
+# custom command receives the prompt on stdin instead.
+run_review_agent() {
+    case "$review_agent" in
         claude)
             claude -p "$1" \
                 --allowed-tools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
             ;;
         custom)
             printf '%s\n' "$1" | sh -c "$custom_cmd"
+            ;;
+    esac
+}
+
+# run_fix_agent reads the fix prompt as $1 and edits the working tree in place.
+# Unlike the review agent it gets write tools; a custom command receives the
+# prompt on stdin instead.
+run_fix_agent() {
+    case "$fix_agent" in
+        claude)
+            claude -p "$1" \
+                --allowed-tools "Read,Edit,Write,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+            ;;
+        custom)
+            printf '%s\n' "$1" | sh -c "$fix_cmd"
             ;;
     esac
 }
@@ -160,7 +206,8 @@ mkdir -p working
     echo
     echo "- Branch: \`$branch\`"
     echo "- Range: \`$range\`"
-    echo "- Agent: \`$agent\`"
+    echo "- Review agent: \`$review_agent\`"
+    [ "$fix_enabled" = "true" ] && echo "- Fix agent: \`$fix_agent\`"
     echo "- Date: $(date '+%Y-%m-%d %H:%M:%S')"
 } > "$report"
 
@@ -251,9 +298,9 @@ trap 'rm -f "$pass1_out" "$pass2_out"' EXIT
 echo ""
 echo "Running pass 1 (general review) and pass 2 (spec conformance) in parallel"
 echo "(this can take a few minutes)..."
-run_agent "$pass1_prompt" > "$pass1_out" 2>&1 &
+run_review_agent "$pass1_prompt" > "$pass1_out" 2>&1 &
 pass1_pid=$!
-run_agent "$pass2_prompt" > "$pass2_out" 2>&1 &
+run_review_agent "$pass2_prompt" > "$pass2_out" 2>&1 &
 pass2_pid=$!
 
 pass1_status=0
@@ -283,6 +330,68 @@ show_pass() {
     fi
 }
 
+# apply_fixes hands the failed review's REQUIRED findings to a single fix agent
+# (both passes combined — coupled fixes and shared root causes need one coherent
+# pass, not one agent per finding). The agent edits the working tree and leaves
+# the changes uncommitted; the push stays blocked and the fixes are re-reviewed
+# on the next push. The fixer's summary is appended to the report and printed to
+# the terminal, capped like the review passes so it can't overflow and get
+# truncated.
+apply_fixes() {
+    if [ "$fix_agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
+        echo "WARNING: 'claude' not found — cannot auto-fix. Fix REQUIRED findings manually." >&2
+        return
+    fi
+
+    local fix_prompt fix_out
+    read -r -d '' fix_prompt <<EOF || true
+You are the fix pass of a pre-push code review for this repository.
+
+The review of the changes in git range $range failed. Read the findings in:
+    $report
+and read CLAUDE.md for this project's coding and testing guidelines.
+
+Apply code fixes for every finding marked REQUIRED. Ignore SUGGESTED findings.
+
+Rules:
+- Fix at the root cause. If several findings share one root cause, fix it once.
+- Make the minimal, localized change that resolves each REQUIRED finding.
+- Edit files in the working tree. Do NOT stage, commit, amend, or push — leave
+  all changes uncommitted for human review.
+- If a REQUIRED finding cannot be fixed safely and automatically, leave it and
+  say why.
+
+End with a report titled "Fix summary" with one entry per REQUIRED finding:
+the finding (file:line and what was wrong) and exactly what you changed to fix
+it — or, if unfixed, why. Keep it concise.
+EOF
+
+    echo ""
+    echo "fix_enabled=true — applying fixes for REQUIRED findings with '$fix_agent'"
+    echo "(this can take a few minutes)..."
+    fix_out=$(mktemp)
+    run_fix_agent "$fix_prompt" > "$fix_out" 2>&1
+
+    {
+        echo
+        echo "## Auto-fix"
+        echo
+        cat "$fix_out"
+    } >> "$report"
+
+    echo ""
+    echo "==== Auto-fix — REQUIRED findings ===="
+    head -n "$show_limit" "$fix_out"
+    if [ "$(wc -l < "$fix_out")" -gt "$show_limit" ]; then
+        echo "[... truncated at $show_limit lines — full fix summary in $report]"
+    fi
+    rm -f "$fix_out"
+
+    echo ""
+    echo "Fixes applied to the working tree (uncommitted). Review the diff, then"
+    echo "commit and push again — only the new commits will be re-reviewed."
+}
+
 show_pass "Pass 1: general review" "$pass1_out" "$pass1_ok"
 show_pass "Pass 2: spec conformance" "$pass2_out" "$pass2_ok"
 
@@ -299,5 +408,9 @@ fi
 
 echo "Code review FAILED — push blocked."
 echo "Full report: $report"
-echo "Fix the REQUIRED findings, commit, and push again."
+if [ "$fix_enabled" = "true" ]; then
+    apply_fixes
+else
+    echo "Fix the REQUIRED findings, commit, and push again."
+fi
 exit 1

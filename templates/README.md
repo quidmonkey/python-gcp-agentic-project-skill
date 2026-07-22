@@ -35,17 +35,25 @@ Each pass reports findings as REQUIRED or SUGGESTED. Any REQUIRED finding blocks
 
 Reviews are incremental. After a passing review, the reviewed commit is recorded in `.git/code-review-ledger`, and the next push only reviews commits added since. A branch that hasn't changed is never re-reviewed.
 
+### Auto-fix
+
+Set `fix_enabled=true` to have a failed review hand its REQUIRED findings to a fix agent. Both passes' findings go to a single fix agent — coupled fixes and shared root causes need one coherent pass, not one agent per finding. The agent edits the working tree to resolve the findings and prints a fix summary (also appended to the report). The changes are left uncommitted and the push stays blocked: review the diff, commit, and push again, where only the new commits get re-reviewed. SUGGESTED findings are left alone.
+
 ### Configuration
 
 `.codereviewrc` in the repo root:
 
 ```
-agent=claude      # claude | custom
-enabled=true      # false disables the review
-# command=...     # for agent=custom: reads the prompt on stdin, prints the review
+review_agent=claude   # claude | custom
+enabled=true          # false disables the review
+# command=...         # for review_agent=custom: reads the prompt on stdin, prints the review
+
+fix_enabled=false     # true auto-fixes REQUIRED findings after a failed review
+fix_agent=claude      # claude | custom
+# fix_command=...     # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
 ```
 
-A custom command must end its output with a final line reading `VERDICT: PASS` or `VERDICT: FAIL`. If the `claude` CLI isn't installed, the hook warns and lets the push through rather than blocking everyone without it; a misconfigured `.codereviewrc` (unknown agent, `custom` without `command=`) blocks the push instead.
+A custom review command must end its output with a final line reading `VERDICT: PASS` or `VERDICT: FAIL`. If the `claude` CLI isn't installed, the hook warns and lets the push through rather than blocking everyone without it; a misconfigured `.codereviewrc` (unknown agent, `custom` without its command) blocks the push instead.
 
 ### Skipping a review
 
