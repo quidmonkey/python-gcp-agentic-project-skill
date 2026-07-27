@@ -9,6 +9,7 @@ my-project/
 ├── .claude/
 │   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform read-only allowlist
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
+│   └── specs/               # TEMPLATE.md; per-flow specs land here as the design grows
 ├── scripts/
 │   ├── code-review.sh       # two-pass agentic code review, runs on git push
 │   └── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
@@ -64,6 +65,8 @@ The `Stop` hooks are the important part. They're enforcement, not reminders, and
 `scripts/docs-sync-check.sh` runs when Claude tries to finish. It blocks the stop and lists what's stale if:
 
 - `docs/design.md` changed but `docs/design.mmd` didn't, so the diagram no longer matches the design.
+- A spec under `docs/specs/` changed but its `<flow>-diagram.mmd` didn't, or a spec exists that the Flows index in `docs/design.md` doesn't link. An unlinked spec is invisible to both readers and the review's spec pass.
+- `docs/design.md` has grown past 400 lines and no per-flow specs exist yet (see below).
 - The project has a deployable footprint and `docs/finops.md` is still the scaffold template, `_TBD_` rows and all.
 - That footprint changed (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, or any `*.tf`) but `docs/finops.md` didn't. Adding a Cloud Run service changes the bill whether or not anyone edited the design doc, so the trigger is the infrastructure, not the prose.
 
@@ -72,6 +75,16 @@ Both finops checks wait for something deployable to exist: a `Dockerfile`, a `sc
 The template check is there because "did the file change?" isn't enough on its own. Before the first commit every file reads as new, so an untouched `finops.md` looks freshly written, which is exactly the state a scaffold test is in. Checking for `_TBD_` catches the file nobody ever filled in.
 
 The gate fires at most once per turn (it honors `stop_hook_active`), so an agent that genuinely can't satisfy it stops instead of looping.
+
+## One design doc, then many specs
+
+A new project gets a single `docs/design.md`, which is right until it isn't. Past a few hundred lines the file stops being readable in one sitting, and every code review has to load all of it to check one flow.
+
+So the scaffold names the threshold instead of leaving it to taste: once `design.md` passes 400 lines or covers three or more flows, each flow moves into `docs/specs/<flow>.md` with a `docs/specs/<flow>-diagram.mmd` beside it. `design.md` keeps the overview, a Flows index linking each spec, the architecture, the data flow between components, deployment, and the cross-cutting concerns. A spec takes its flow's step-by-step behavior, the tools and endpoints only it calls, its configuration, its edge cases, and its limits. Nothing is stated in both places — the index line plus the link is the whole handoff, and each spec links back up to `design.md` and down to its own diagram.
+
+`docs/specs/TEMPLATE.md` ships with the project as the shape a spec starts from: what it does, components, configuration, auth, limits and out of scope, open questions. Copying a filled-in structure beats inventing one per flow, and it lands in the repo rather than in the skill so teammates without the skill still have it.
+
+What holds the set together is enforced by the sync gate rather than left to discipline: a spec's diagram tracks the spec, a spec is reachable from the index, and a `design.md` that has outgrown itself gets split. `CLAUDE.md` carries the same rule for the agent, and the review's spec pass reads the flow's spec as the source of truth for that flow.
 
 ## App run check
 

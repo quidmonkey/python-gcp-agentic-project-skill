@@ -73,3 +73,5 @@ Or set `enabled=false` in `.codereviewrc` to turn it off for the repo. Skipping 
 ## Documentation
 
 Design docs live in `docs/`. `design.md` is the source of truth for architecture decisions; the code review's second pass enforces it, so keep it current.
+
+One file holds the whole design at first. Once `design.md` passes ~400 lines or covers three or more flows, each flow moves into its own `docs/specs/<flow>.md` with a `docs/specs/<flow>-diagram.mmd` beside it, and `design.md` keeps the overview, the Flows index, the architecture, and the cross-cutting concerns. Start a new spec by copying `docs/specs/TEMPLATE.md`. The docs sync gate blocks a turn that adds a spec without its diagram or without linking it from the index.

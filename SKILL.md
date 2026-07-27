@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.10.0
+version: 2.11.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -94,6 +94,7 @@ Notes:
 | `templates/Makefile` | `Makefile` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
 | `templates/docs/design.mmd` | `docs/design.mmd` | write |
+| `templates/docs/specs/TEMPLATE.md` | `docs/specs/TEMPLATE.md` | write |
 | `templates/docs/finops.md` | `docs/finops.md` | write — **GCP only** |
 | `templates/docs/infra.md` | `docs/infra.md` | write — **GCP only** |
 | `templates/.gitignore` | `.gitignore` | write |
@@ -101,7 +102,7 @@ Notes:
 Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
-mkdir -p .claude docs working scripts
+mkdir -p .claude docs/specs working scripts
 chmod +x scripts/code-review.sh scripts/docs-sync-check.sh
 ```
 
@@ -133,8 +134,9 @@ uv run pre-commit install
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform` commands, prompts on writes)
-- Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`, or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
-- Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
+- Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`; a changed spec's `docs/specs/<flow>-diagram.mmd` is stale or the spec isn't linked from the Flows index in `docs/design.md`; `docs/design.md` is over 400 lines with no per-flow specs yet; or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
+- Docs: `docs/design.md`, `docs/design.mmd`, `docs/specs/TEMPLATE.md` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
+- Design doc split: while the project is small `design.md` holds everything. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (copied from `TEMPLATE.md`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
 - Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude, `review_model` to sonnet); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
 - Auto-fix (optional): `fix_enabled=true` in `.codereviewrc` (default false) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked
 - App run check: `make run-check` — the agent runs it after every code change per `CLAUDE.md`, and a pre-push hook runs it as a backstop; ships as an import check, to be upgraded once the app has a real entry point

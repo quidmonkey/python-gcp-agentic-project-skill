@@ -328,10 +328,14 @@ spec conformance.
 Scope: $scope_desc. Start with:
     git diff $diff_arg
 $extra
-Then read every spec document in docs/ (design.md and any others present).
+Then read docs/design.md. If docs/specs/ holds per-flow specs, read the ones
+covering the flows this change touches (design.md's Flows index maps them);
+each is the source of truth for its own flow. Read any other document in docs/
+that bears on the change.
 
 Check that the changed code conforms to the intent laid out in the specs:
 - Architecture and component boundaries match docs/design.md
+- Per-flow behavior matches the flow's spec under docs/specs/
 - Data flow and integration points match the documented design
 - Nothing contradicts documented decisions or constraints
 - If the change alters design, architecture, or public API, the docs were updated in the same change

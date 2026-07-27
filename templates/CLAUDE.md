@@ -51,7 +51,7 @@ Trigger this for proposals that involve:
 - Changes to data flow or integration points
 - Dependency additions that affect architecture
 - Refactors that shift module responsibilities
-- Anything that would require updating `docs/design.md`
+- Anything that would require updating `docs/design.md` or a spec under `docs/specs/`
 
 Only proceed to implementation after all decision branches are resolved and the user confirms.
 
@@ -80,7 +80,7 @@ Fix every failure at root cause:
 - Never modify a test solely to make it pass. Change a test only when the docs show it's wrong
 - Re-run until clean
 
-If design, architecture, or public API changed, update `docs/design.md` plus any relevant `README.md` or `ARCHITECTURE.md`. Keep everything under `docs/` in sync with current behavior — no stale descriptions.
+If design, architecture, or public API changed, update `docs/design.md` — or the spec under `docs/specs/` that owns the flow — plus any relevant `README.md` or `ARCHITECTURE.md`. Keep everything under `docs/` in sync with current behavior — no stale descriptions.
 
 ## Code review gate
 
@@ -107,9 +107,20 @@ Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SK
 Project docs live in `docs/`:
 - `design.md` — RFC; defines architecture and design decisions
 - `design.mmd` — Mermaid diagram of the design
+- `specs/<flow>.md` — one spec per end-to-end flow, once the design is large enough to split (see below)
+- `specs/<flow>-diagram.mmd` — Mermaid diagram for that flow
+- `specs/TEMPLATE.md` — the shape a new spec starts from; copy it, don't edit it
 {{gcp-doc-lines}}
 
-**Sync rule**: After editing `docs/design.md`, update `docs/design.mmd` to match before reporting done.
+### Splitting design.md into per-flow specs
+
+While the project is small, `design.md` holds everything. Once it passes ~400 lines or covers three or more flows, split it: each flow becomes `docs/specs/<flow>.md` (copied from `docs/specs/TEMPLATE.md`) with a `docs/specs/<flow>-diagram.mmd` beside it.
+
+`design.md` keeps the overview, the Flows index, the architecture, the data flow between components, deployment, and anything cross-cutting (auth, observability, security). Each spec takes its flow's step-by-step behavior, the tools and endpoints only it calls, its configuration, its edge cases, and its limits. Don't restate a spec's contents in `design.md` — the index line plus the link is the whole handoff.
+
+A spec is the source of truth for its flow. When a change touches one flow, that spec is the doc to read first and the doc to update.
+
+**Sync rules**: After editing `docs/design.md`, update `docs/design.mmd` to match before reporting done. After editing a spec, update its `-diagram.mmd`. A new spec must be linked from the Flows index in `docs/design.md`.
 {{gcp-sync-rule}}
 A Stop hook (`scripts/docs-sync-check.sh`) blocks the turn from ending while any of these are stale, so sync them as part of the change rather than waiting to be told.
 

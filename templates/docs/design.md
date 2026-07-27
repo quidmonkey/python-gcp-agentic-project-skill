@@ -18,6 +18,12 @@ _List and describe each major component._
 
 _How data moves through the system._
 
+## Flows
+
+_One numbered entry per end-to-end flow: a one-line summary, then a link to its spec in [specs/](specs/). While the project is small, describe the flows inline here and leave this section empty._
+
+_Once this document passes ~400 lines or covers three or more flows, split each flow into `specs/<flow>.md` (copy `specs/TEMPLATE.md`) with a `specs/<flow>-diagram.mmd` beside it. What stays here: the overview, this index, the architecture, the data flow between components, deployment, and anything cross-cutting. What moves out: per-flow step-by-step behavior, the tools and endpoints a single flow calls, its configuration, and its edge cases._
+
 ## Trade-offs and Alternatives
 
 _Key decisions made and why. What alternatives were rejected?_
