@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.8.0
+version: 2.9.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -128,7 +128,7 @@ uv run pre-commit install
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
-- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes)
+- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes; pre-approves read-only `gcloud`/`terraform` commands, prompts on writes)
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude, `review_model` to sonnet); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
 - Auto-fix (optional): `fix_enabled=true` in `.codereviewrc` (default false) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked

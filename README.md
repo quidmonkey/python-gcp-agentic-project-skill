@@ -7,7 +7,7 @@ A Claude Code skill that scaffolds Python projects with `uv`. One command wires 
 ```
 my-project/
 ├── .claude/
-│   └── settings.json        # Stop hook: runs pre-commit + detects docs/design.md changes
+│   └── settings.json        # Stop hook (pre-commit + docs/design.md drift); gcloud/terraform read-only allowlist
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
 ├── scripts/
 │   └── code-review.sh       # two-pass agentic code review, runs on git push
@@ -51,6 +51,10 @@ Humanizing prose is baked into `CLAUDE.md` as inline directives (condensed from 
 Two files keep AI agents honest after they write code.
 
 `CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse, impersonal response style, coding guidelines that favor reuse and the stdlib over new code, an explicit source-of-truth hierarchy (`docs/` > tests > code, so a failing test sends the agent to the specs rather than to the test file), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. It's deliberately kept short: enforcement lives in hooks, and the file states each rule once rather than restating what a hook already checks. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` (and `docs/finops.md` on GCP projects).
+
+The same file pre-approves read-only `gcloud` and `terraform` commands: `describe`, `list`, `get-iam-policy`, `logging read`, `plan`, `validate`, `state list`, and so on. Inspecting a GCP project no longer costs one permission prompt per command. Writes are a different matter. Anything not on the allowlist still prompts, and the destructive operations (`terraform apply`/`destroy`, `gcloud secrets versions access`, `projects delete`, service-account key creation, auth changes) sit in `ask`, so they prompt even if someone later adds a broader allow rule. One limit worth knowing: permission rules only wildcard at the end, so a read verb on a service group the list doesn't name still prompts. Add it to `allow` when that happens.
+
+Precedence matters if you edit any of this. `deny` beats `ask` beats `allow`, across every settings file. A blanket `Bash(gcloud *)` in an `ask` array silently kills every specific `gcloud` allow rule, these included. The specific rules stay in the file; they just stop doing anything.
 
 The `Stop` hook is the important one. It's enforcement, not a reminder.
 
