@@ -1,6 +1,6 @@
 # {{project-name}} Design
 
-> **RFC — Request for Comments.** This document defines the project architecture and design. Update it as the design evolves; when you do, also update `design.mmd`{{gcp-sync-files}}.
+> **RFC — Request for Comments.** This document defines the project architecture and design. Update it as the design evolves; when you do, also update `design.mmd` and any other doc in this directory the change affects. The `scripts/docs-sync-check.sh` Stop hook enforces this.
 
 ## Overview
 

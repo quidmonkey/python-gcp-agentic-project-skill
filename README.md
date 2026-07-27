@@ -7,10 +7,11 @@ A Claude Code skill that scaffolds Python projects with `uv`. One command wires 
 ```
 my-project/
 ├── .claude/
-│   └── settings.json        # Stop hook (pre-commit + docs/design.md drift); gcloud/terraform read-only allowlist
+│   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform read-only allowlist
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
 ├── scripts/
-│   └── code-review.sh       # two-pass agentic code review, runs on git push
+│   ├── code-review.sh       # two-pass agentic code review, runs on git push
+│   └── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
 ├── .codereviewrc            # code review config: agent, enabled, custom command
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
 ├── .pre-commit-config.yaml  # all hooks configured (pre-commit + pre-push stages)
@@ -50,13 +51,27 @@ Humanizing prose is baked into `CLAUDE.md` as inline directives (condensed from 
 
 Two files keep AI agents honest after they write code.
 
-`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse, impersonal response style, coding guidelines that favor reuse and the stdlib over new code, an explicit source-of-truth hierarchy (`docs/` > tests > code, so a failing test sends the agent to the specs rather than to the test file), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. It's deliberately kept short: enforcement lives in hooks, and the file states each rule once rather than restating what a hook already checks. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` (and `docs/finops.md` on GCP projects).
+`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse, impersonal response style, coding guidelines that favor reuse and the stdlib over new code, an explicit source-of-truth hierarchy (`docs/` > tests > code, so a failing test sends the agent to the specs rather than to the test file), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. It's deliberately kept short: enforcement lives in hooks, and the file states each rule once rather than restating what a hook already checks. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second `Stop` hook (`scripts/docs-sync-check.sh`) does the same job for documentation drift.
 
 The same file pre-approves read-only `gcloud` and `terraform` commands: `describe`, `list`, `get-iam-policy`, `logging read`, `plan`, `validate`, `state list`, and so on. Inspecting a GCP project no longer costs one permission prompt per command. Writes are a different matter. Anything not on the allowlist still prompts, and the destructive operations (`terraform apply`/`destroy`, `gcloud secrets versions access`, `projects delete`, service-account key creation, auth changes) sit in `ask`, so they prompt even if someone later adds a broader allow rule. One limit worth knowing: permission rules only wildcard at the end, so a read verb on a service group the list doesn't name still prompts. Add it to `allow` when that happens.
 
 Precedence matters if you edit any of this. `deny` beats `ask` beats `allow`, across every settings file. A blanket `Bash(gcloud *)` in an `ask` array silently kills every specific `gcloud` allow rule, these included. The specific rules stay in the file; they just stop doing anything.
 
-The `Stop` hook is the important one. It's enforcement, not a reminder.
+The `Stop` hooks are the important part. They're enforcement, not reminders, and that distinction has teeth: a Stop hook that exits 0 prints to the transcript, where the model never sees it. Both hooks exit 2 and write to stderr, the one channel that feeds back into the turn.
+
+## Docs sync gate
+
+`scripts/docs-sync-check.sh` runs when Claude tries to finish. It blocks the stop and lists what's stale if:
+
+- `docs/design.md` changed but `docs/design.mmd` didn't, so the diagram no longer matches the design.
+- The project has a deployable footprint and `docs/finops.md` is still the scaffold template, `_TBD_` rows and all.
+- That footprint changed (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, or any `*.tf`) but `docs/finops.md` didn't. Adding a Cloud Run service changes the bill whether or not anyone edited the design doc, so the trigger is the infrastructure, not the prose.
+
+Both finops checks wait for something deployable to exist: a `Dockerfile`, a `scripts/deploy.sh`, terraform, or an `infra.md` with the placeholders filled in. A project with nothing built yet has no costs to record, so the gate stays quiet. On non-GCP projects the file doesn't exist at all and the check skips.
+
+The template check is there because "did the file change?" isn't enough on its own. Before the first commit every file reads as new, so an untouched `finops.md` looks freshly written, which is exactly the state a scaffold test is in. Checking for `_TBD_` catches the file nobody ever filled in.
+
+The gate fires at most once per turn (it honors `stop_hook_active`), so an agent that genuinely can't satisfy it stops instead of looping.
 
 ## App run check
 

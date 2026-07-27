@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.9.0
+version: 2.10.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -21,7 +21,7 @@ allowed-tools:
 Scaffold a Python project with ruff, ty, bandit, pytest, pre-commit, and agent instruction files.
 
 Templates: `~/.claude/skills/python-gcp-agentic-project-skill/templates/`
-Placeholders: `{{project-name}}`, `{{package_name}}`, `{{code-dir}}`, `{{test-dir}}`, `{{layout-line}}`, `{{gcp-doc-lines}}`, `{{gcp-sync-files}}`
+Placeholders: `{{project-name}}`, `{{package_name}}`, `{{code-dir}}`, `{{test-dir}}`, `{{layout-line}}`, `{{gcp-doc-lines}}`, `{{gcp-sync-rule}}`
 
 ## Step 1: Gather inputs
 
@@ -44,7 +44,10 @@ Set variables:
   - `finops.md` — GCP cost analysis for the design
   - `infra.md` — CI pipeline, IAM accounts and roles
   ```
-- `{{gcp-sync-files}}`: if GCP, `` and `docs/finops.md` ``; if non-GCP, empty string.
+- `{{gcp-sync-rule}}`: if GCP, the line below; if non-GCP, empty string (and drop the blank line that follows it).
+  ```
+  After any change to the deployed GCP footprint — `docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, or any `*.tf` — update `docs/finops.md` so the service table and cost estimates match what is actually deployed.
+  ```
 
 ## Step 2: Create project
 
@@ -86,6 +89,7 @@ Notes:
 | `templates/README.md` | `README.md` | write |
 | `templates/.codereviewrc` | `.codereviewrc` | write |
 | `templates/scripts/code-review.sh` | `scripts/code-review.sh` | write |
+| `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/Makefile` | `Makefile` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
@@ -98,7 +102,7 @@ Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
 mkdir -p .claude docs working scripts
-chmod +x scripts/code-review.sh
+chmod +x scripts/code-review.sh scripts/docs-sync-check.sh
 ```
 
 `working/` holds dirty files needed during development but never committed. The `.gitignore` template excludes it.
@@ -128,7 +132,8 @@ uv run pre-commit install
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
-- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hook runs pre-commit; detects `docs/design.md` changes; pre-approves read-only `gcloud`/`terraform` commands, prompts on writes)
+- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform` commands, prompts on writes)
+- Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`, or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude, `review_model` to sonnet); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
 - Auto-fix (optional): `fix_enabled=true` in `.codereviewrc` (default false) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked

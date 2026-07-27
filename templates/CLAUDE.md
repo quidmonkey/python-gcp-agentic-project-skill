@@ -109,7 +109,9 @@ Project docs live in `docs/`:
 - `design.mmd` — Mermaid diagram of the design
 {{gcp-doc-lines}}
 
-**Sync rule**: After editing `docs/design.md`, update `docs/design.mmd`{{gcp-sync-files}} to reflect the changes before reporting done.
+**Sync rule**: After editing `docs/design.md`, update `docs/design.mmd` to match before reporting done.
+{{gcp-sync-rule}}
+A Stop hook (`scripts/docs-sync-check.sh`) blocks the turn from ending while any of these are stale, so sync them as part of the change rather than waiting to be told.
 
 ## Writing prose and markdown
 
