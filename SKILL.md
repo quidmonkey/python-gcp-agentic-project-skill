@@ -53,14 +53,14 @@ Set variables:
 
 **Single:**
 ```bash
-uv init --package {{project-name}}
+uv init --package --python 3.12 {{project-name}}
 cd {{project-name}}
 mkdir -p tests && touch tests/__init__.py
 ```
 
 **Monorepo:**
 ```bash
-uv init {{project-name}}
+uv init --python 3.12 {{project-name}}
 cd {{project-name}}
 rm -f hello.py
 mkdir -p packages/{{package_name}}/tests
@@ -79,7 +79,7 @@ Read each template from `~/.claude/skills/python-gcp-agentic-project-skill/templ
 
 Notes:
 - `uv init` pre-creates `.gitignore` and `README.md`. To overwrite, Read the existing file first (the harness blocks overwrite-without-read), then Write.
-- `pyproject-additions.toml` is appended, so it must start with a `[table]` header. Never add a bare top-level key (e.g. `requires-python`) at its top — it would leak into the last existing table (`[dependency-groups]`) and break the parse. `uv init` already sets `requires-python` in `[project]`.
+- `pyproject-additions.toml` is appended, so it must start with a `[table]` header. Never add a bare top-level key (e.g. `requires-python`) at its top — it would leak into the last existing table (`[dependency-groups]`) and break the parse. `uv init` already sets `requires-python` in `[project]`. Keep the `--python 3.12` flag on `uv init` — without it uv picks whatever interpreter its `python-preference = "managed"` default resolves to, which can be older than 3.12 and silently lowers both `requires-python` and the ruff `target-version` inferred from it.
 
 | Template | Destination | Mode |
 |----------|------------|------|
