@@ -47,14 +47,18 @@ After the fix pass the review runs again over the working tree, and fix -> re-re
 
 ```
 review_agent=claude    # claude | custom
+review_model=sonnet    # model for the review passes (alias or full name)
 enabled=true           # false disables the review
 # command=...          # for review_agent=custom: reads the prompt on stdin, prints the review
 
 fix_enabled=false      # true auto-fixes REQUIRED findings after a failed review
 fix_agent=claude       # claude | custom
+fix_model=opus         # model for the fix pass
 fix_max_iterations=2   # max fix -> re-review rounds before giving up
 # fix_command=...      # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
 ```
+
+The models are pinned rather than inherited from the `claude` CLI default, so the gate's cost doesn't move when that default changes. One blocked push with `fix_enabled=true` runs up to 6 review passes and 2 fix passes.
 
 A custom review command must end its output with a final line reading `VERDICT: PASS` or `VERDICT: FAIL`. If the `claude` CLI isn't installed, the hook warns and lets the push through rather than blocking everyone without it; a misconfigured `.codereviewrc` (unknown agent, `custom` without its command) blocks the push instead.
 

@@ -1,6 +1,7 @@
 [tool.ruff]
 line-length = 88
-target-version = "py312"
+# target-version is intentionally unset: ruff infers it from project.requires-python
+# above, so the two can't drift apart.
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "C90"]

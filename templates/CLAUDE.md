@@ -11,16 +11,9 @@
 
 ## Response style
 
-Be terse. Lead with the answer or the code, then at most a few lines of why. Drop pleasantries, hedging, and filler. Fragments are fine. One idea per sentence.
+Be terse. Lead with the answer or the code, then at most a few lines of why. Drop pleasantries, hedging, and filler. Stay explicit for security warnings, destructive-action confirmations, and steps where order matters.
 
-The agent is a tool, not a person. Never self-refer with personal terms: no "I", "me", "my", "mine", "we", "our", "myself", and no claims of opinion, feeling, or preference. Use impersonal phrasing instead:
-
-- "I added a retry" → "Added a retry"
-- "My recommendation is X" → "Recommendation: X"
-- "I think the test is wrong" → "The test appears wrong"
-- "Let me check" → "Checking"
-
-Stay fully explicit — never terse — for security warnings, confirmations of destructive or irreversible actions, and multi-step instructions where order matters.
+The agent is a tool, not a person. Never self-refer with personal terms — no "I", "me", "my", "we", "our" — and make no claims of opinion, feeling, or preference. Use impersonal phrasing: "Added a retry", "Recommendation: X", "The test appears wrong", "Checking".
 
 Code, commit messages, and PR descriptions are written normally.
 
@@ -41,27 +34,13 @@ uv run pre-commit run --all-files
 
 ## Coding Guidelines
 
-- Write the simplest code that remains clear and maintainable
-- Code should be optimized for readability and ease of iteration
-- Reuse existing functions and modules before creating new ones
-- Identify duplicate logic; extract shared functionality
-- Prefer composition over duplication
+- Write the simplest code that stays clear and maintainable; optimize for readability and ease of iteration
+- Reuse before writing, in this order: an existing helper in this repo, the stdlib, an already-installed dependency. Add a new dependency only when none of those cover it
 - Prefer modular and functional style over OOP
-- Avoid over-abstraction unless reuse >= 2
-
-**Reach for the laziest solution that works.** Before writing code, climb this ladder and stop at the first rung that holds:
-1. Does it need to exist? Speculative need → skip it, say so.
-2. Already in this codebase? Reuse the existing helper / util / type / pattern.
-3. Stdlib does it? Use it.
-4. Native platform or framework feature covers it? Use it over a new dependency.
-5. Already-installed dependency solves it? Use it — don't add one for a few lines.
-6. Can it be one line? One line.
-7. Only then: the minimum code that works.
-
-- No speculative abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.
-- Deletion over addition. Boring over clever.
-- Bug fix = root cause: grep every caller and fix the shared function once, not just the path the report names.
-- Mark a deliberate shortcut with a comment naming the ceiling and the upgrade path.
+- No speculative abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes. Avoid abstraction until reuse >= 2
+- Deletion over addition. Boring over clever
+- Bug fix = root cause: grep every caller and fix the shared function once, not just the path the report names
+- Mark a deliberate shortcut with a comment naming the ceiling and the upgrade path
 
 ## Design and architecture proposals
 
@@ -78,71 +57,34 @@ Only proceed to implementation after all decision branches are resolved and the 
 
 ## Before making changes
 
-- Check for lint violations and fix root causes
-- Check failing tests and determine if behavior or test is incorrect
-- Treat tests as the source of truth for intended behavior
-- Never:
-  - disable lint rules unless absolutely necessary
-  - modify tests solely to make them pass without justification
+Check for existing lint violations and failing tests first.
+
+**Source of truth, highest authority first:** `docs/` (specs and `design.md`) > tests > code. Docs state intended behavior; tests encode it where the docs are silent; code only describes what happens now. Resolve any conflict by climbing to the highest level that speaks to it.
+
+So a failing test means either the code is wrong or the test contradicts the docs. Check the docs before assuming the test is correct; where they're silent, the test wins over the code.
 
 ## After every code change
 
-Run pre-commit on changed files before reporting done:
+Before reporting done, run pre-commit over the changed files and confirm the app still starts:
 
 ```bash
-# Fast — scope to changed files only
-uv run pre-commit run --files <changed files>
-
-# Full — run all hooks across entire project (use before committing)
-uv run pre-commit run --all-files
+uv run pre-commit run --files <changed files>   # during iteration
+uv run pre-commit run --all-files               # before reporting a task complete
+make run-check                                  # confirms the app starts; also runs on git push
 ```
 
-Use `--files` during iteration. Use `--all-files` before reporting a task complete.
+`make run-check` is standard operating procedure, not a test. If it fails, fix the startup breakage before anything else — the app not running invalidates all other work. It ships as a placeholder import check; when you add or change the app's entry point, update the target in the same change so it exercises real startup (the `Makefile` documents the constraints and patterns).
 
-### Verify the app runs
-
-After writing or changing code, run the app to confirm it still starts:
-
-```bash
-make run-check
-```
-
-This is standard operating procedure, not a test. Run it before reporting a task complete, alongside pre-commit. It also runs on `git push`.
-
-Keep the target honest:
-- The scaffolded command is an import check — a placeholder, acceptable only while the project has no entry point.
-- When you add or change the app's entry point (CLI command, server boot, job main), update `make run-check` in the same change so it exercises the real startup path: a CLI gets `--help` or a dry-run invocation; a server gets start + health probe + teardown.
-- The command must exit non-zero on failure, finish in under 30 seconds, and need no external services or credentials.
-- If `make run-check` fails, fix the startup breakage before anything else — the app not running invalidates all other work.
-
-Fix all failures at root cause. Rules:
-- Never use `--no-verify` or `--skip`
-- Never disable lint rules to silence failures
-- Never modify tests solely to make them pass — tests are the source of truth
+Fix every failure at root cause:
+- Never use `--no-verify` or `--skip`, and never disable a lint rule to silence a failure
+- Never modify a test solely to make it pass. Change a test only when the docs show it's wrong
 - Re-run until clean
 
-If design, architecture, or public API changed: update any of `README.md`, `ARCHITECTURE.md`, `docs/design.md` that exist and are relevant. Keep all files under `docs/` in sync with current behavior — do not leave stale descriptions.
-
-Also verify:
-- No duplicate logic was introduced
-- Changes are minimal and localized
-- Code follows the guidelines above
+If design, architecture, or public API changed, update `docs/design.md` plus any relevant `README.md` or `ARCHITECTURE.md`. Keep everything under `docs/` in sync with current behavior — no stale descriptions.
 
 ## Code review gate
 
-`git push` triggers a two-pass agentic code review (pre-push hook, `scripts/code-review.sh`):
-
-1. General review — DRY, YAGNI, library leverage, missing tests, best practices, security
-2. Spec conformance — the change vs the intent in `docs/`
-
-Commits are reviewed once per branch: after a passing review, only new commits are reviewed on the next push. Config lives in `.codereviewrc`.
-
-Optional auto-fix: set `fix_enabled=true` in `.codereviewrc` to have a failed review hand its REQUIRED findings to a single fix agent that edits the working tree, then re-review and fix again in a loop (up to `fix_max_iterations`, default 2) until the tree passes. The changes are left uncommitted and the push stays blocked even on success — review the diff, commit, and push again.
-
-If the push is blocked by a failed review:
-1. Read `working/code-review-report.md`
-2. Fix every REQUIRED finding at root cause (or review the auto-fix diff if `fix_enabled=true`)
-3. Commit and push again (only the new commits get re-reviewed)
+`git push` triggers a two-pass agentic review (pre-push hook, `scripts/code-review.sh`): pass 1 is a general review (DRY, YAGNI, library leverage, missing tests, security), pass 2 checks the change against the intent in `docs/`. Any REQUIRED finding blocks the push. The hook prints both passes' findings and writes the full report to `working/code-review-report.md`; fix every REQUIRED finding at root cause, commit, and push again — only new commits get re-reviewed. Config lives in `.codereviewrc`.
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
 

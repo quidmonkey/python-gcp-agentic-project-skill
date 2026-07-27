@@ -13,8 +13,8 @@
 # passes combined) to a single fix agent that edits the working tree to resolve
 # them. Fixes are left uncommitted for review; the push stays blocked.
 #
-# Config: .codereviewrc (key=value) — review_agent, enabled, command,
-#         fix_enabled, fix_agent, fix_command.
+# Config: .codereviewrc (key=value) — review_agent, review_model, enabled,
+#         command, fix_enabled, fix_agent, fix_model, fix_command.
 # Skip:   SKIP_CODE_REVIEW=true git push, or enabled=false in .codereviewrc.
 set -u
 
@@ -40,6 +40,10 @@ rc_get() {
 
 review_agent=$(rc_get review_agent)
 review_agent=${review_agent:-claude}
+# Pinned so the gate's cost doesn't move when the CLI's default model changes:
+# a blocked push with auto-fix on can run up to 6 review passes.
+review_model=$(rc_get review_model)
+review_model=${review_model:-sonnet}
 enabled=$(rc_get enabled)
 enabled=${enabled:-true}
 custom_cmd=$(rc_get command)
@@ -50,6 +54,9 @@ fix_enabled=$(rc_get fix_enabled)
 fix_enabled=${fix_enabled:-false}
 fix_agent=$(rc_get fix_agent)
 fix_agent=${fix_agent:-claude}
+# The fixer writes code, so it gets the stronger default of the two.
+fix_model=$(rc_get fix_model)
+fix_model=${fix_model:-opus}
 fix_cmd=$(rc_get fix_command)
 fix_max_iterations=$(rc_get fix_max_iterations)
 fix_max_iterations=${fix_max_iterations:-2}
@@ -115,11 +122,13 @@ fi
 # run_review_agent reads the prompt as $1 and prints the review to stdout; the
 # review must end with "VERDICT: PASS" or "VERDICT: FAIL" as its final line. A
 # custom command receives the prompt on stdin instead.
+# git status is allowed: the re-review prompt needs it to see untracked files
+# the fixer added, and a headless -p run has no prompt to approve it with.
 run_review_agent() {
     case "$review_agent" in
         claude)
-            claude -p "$1" \
-                --allowed-tools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+            claude -p "$1" --model "$review_model" \
+                --allowed-tools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
             ;;
         custom)
             printf '%s\n' "$1" | sh -c "$custom_cmd"
@@ -128,13 +137,13 @@ run_review_agent() {
 }
 
 # run_fix_agent reads the fix prompt as $1 and edits the working tree in place.
-# Unlike the review agent it gets write tools; a custom command receives the
-# prompt on stdin instead.
+# Unlike the review agent it gets write tools, plus the checks it must not break;
+# a custom command receives the prompt on stdin instead.
 run_fix_agent() {
     case "$fix_agent" in
         claude)
-            claude -p "$1" \
-                --allowed-tools "Read,Edit,Write,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+            claude -p "$1" --model "$fix_model" \
+                --allowed-tools "Read,Edit,Write,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(uv run pytest:*),Bash(uv run pre-commit:*),Bash(make run-check:*)"
             ;;
         custom)
             printf '%s\n' "$1" | sh -c "$fix_cmd"
@@ -395,6 +404,8 @@ Rules:
 - Make the minimal, localized change that resolves each REQUIRED finding.
 - Edit files in the working tree. Do NOT stage, commit, amend, or push — leave
   all changes uncommitted for human review.
+- Verify before finishing: run \`uv run pre-commit run --files <changed files>\`
+  and \`uv run pytest\`. A fix that breaks lint or tests is not a fix.
 - If a REQUIRED finding cannot be fixed safely and automatically, leave it and
   say why.
 

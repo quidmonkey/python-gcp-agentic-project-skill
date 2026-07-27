@@ -50,7 +50,7 @@ Humanizing prose is baked into `CLAUDE.md` as inline directives (condensed from 
 
 Two files keep AI agents honest after they write code.
 
-`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse response style, a "laziest solution that works" rule (reuse and stdlib before new code, no speculative abstractions), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` (and `docs/finops.md` on GCP projects).
+`CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse, impersonal response style, coding guidelines that favor reuse and the stdlib over new code, an explicit source-of-truth hierarchy (`docs/` > tests > code, so a failing test sends the agent to the specs rather than to the test file), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. It's deliberately kept short: enforcement lives in hooks, and the file states each rule once rather than restating what a hook already checks. `.claude/settings.json` adds a `Stop` hook that runs pre-commit when Claude finishes responding, scoped to changed files for speed, falling back to `--all-files` on a clean working tree. The output feeds back as context, so Claude sees any failures and corrects them before you're involved. A second hook warns when `docs/design.md` was modified without updating `docs/design.mmd` (and `docs/finops.md` on GCP projects).
 
 The `Stop` hook is the important one. It's enforcement, not a reminder.
 
@@ -69,15 +69,23 @@ Findings come back as REQUIRED or SUGGESTED. Both passes' findings are printed t
 
 Reviews are incremental: the last passing commit for each branch is recorded in `.git/code-review-ledger`, so the next push reviews only new commits. An unchanged branch is never re-reviewed.
 
-The reviewing agent is configurable via `.codereviewrc`:
+Optionally, a failed review can fix itself: set `fix_enabled=true` and the REQUIRED findings from both passes go to a single fix agent that edits the working tree, then the review runs again over the tree. Fix → re-review loops until it passes or `fix_max_iterations` is hit. The fixes are always left uncommitted and the push always stays blocked, even on success — what passed is a working tree, not a commit, so it can't be recorded or shipped. Review the diff, commit, push again.
+
+Both agents are configurable via `.codereviewrc`:
 
 | Key | Values | Default |
 |-----|--------|---------|
-| `agent` | `claude`, `codex`, `gemini`, `copilot`, `pi`, `custom` | `claude` |
+| `review_agent` | `claude`, `custom` | `claude` |
+| `review_model` | model alias or full name | `sonnet` |
 | `enabled` | `true` / `false` | `true` |
-| `command` | shell command for `agent=custom`; receives the prompt on stdin | — |
+| `command` | shell command for `review_agent=custom`; receives the prompt on stdin | — |
+| `fix_enabled` | `true` / `false` | `false` |
+| `fix_agent` | `claude`, `custom` | `claude` |
+| `fix_model` | model alias or full name | `opus` |
+| `fix_max_iterations` | positive integer | `2` |
+| `fix_command` | shell command for `fix_agent=custom`; receives the fix prompt on stdin | — |
 
-The contract is agent-agnostic: whatever runs must print its review to stdout and end with `VERDICT: PASS` or `VERDICT: FAIL`. Preset CLI flags live at the top of `code-review.sh` and are easy to adjust if a CLI's syntax changes.
+The contract is agent-agnostic: whatever runs must print its review to stdout and end with `VERDICT: PASS` or `VERDICT: FAIL`. Models are pinned rather than inherited from the `claude` CLI default so the gate's cost doesn't drift when that default changes — one blocked push with auto-fix on runs up to 6 review passes and 2 fix passes. A misconfigured file (unknown agent, `custom` with no command) blocks the push rather than silently disabling the gate.
 
 Escape hatches: `SKIP_CODE_REVIEW=true git push` skips one push, `enabled=false` turns it off for the repo. If the agent CLI isn't installed at all, the hook warns and fails open so teammates without it aren't blocked.
 

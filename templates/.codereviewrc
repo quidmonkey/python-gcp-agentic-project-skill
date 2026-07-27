@@ -4,6 +4,10 @@
 # Review agent: claude | custom
 review_agent=claude
 
+# Model for the review passes (alias or full name). Pinned rather than inheriting
+# the CLI default: a blocked push with auto-fix on runs up to 6 review passes.
+review_model=sonnet
+
 # Set to false to disable the pre-push code review entirely.
 enabled=true
 
@@ -25,6 +29,10 @@ fix_enabled=false
 
 # Agent used to apply fixes when fix_enabled=true: claude | custom
 fix_agent=claude
+
+# Model for the fix pass. Stronger default than the review passes — the fixer
+# writes code, and it runs at most twice per push.
+fix_model=opus
 
 # Max fix -> re-review rounds before the loop gives up (positive integer).
 fix_max_iterations=2
