@@ -29,11 +29,8 @@ if has docs/design.md && ! has docs/design.mmd; then
 fi
 
 # Per-flow specs carry the same diagram and index obligations as design.md.
-# TEMPLATE.md is the scaffold to copy, not a flow -- it has no diagram and
-# nothing to index.
 while IFS= read -r spec; do
   [ -n "$spec" ] || continue
-  [ "$spec" = "docs/specs/TEMPLATE.md" ] && continue
   # A deleted spec is also "changed". It needs neither a diagram nor an index
   # entry -- retiring a flow is a removal on both sides, not a sync failure.
   [ -f "$spec" ] || continue
@@ -54,11 +51,13 @@ EOF
 
 # A design doc past this size stops being readable in one sitting, and the
 # code-review spec pass has to load all of it to check one flow.
+# docs/specs/ is absent until the first split, so find on a missing dir is the
+# normal "no specs yet" case, not an error.
 if has docs/design.md && [ -f docs/design.md ] &&
   [ "$(wc -l <docs/design.md)" -gt 400 ] &&
-  [ -z "$(find docs/specs -name '*.md' -not -name 'TEMPLATE.md' -print -quit 2>/dev/null)" ]; then
+  [ -z "$(find docs/specs -name '*.md' -print -quit 2>/dev/null)" ]; then
   stale="$stale
-- docs/specs/ -- docs/design.md is over 400 lines with no per-flow specs; split each flow into docs/specs/<flow>.md (copy docs/specs/TEMPLATE.md) plus docs/specs/<flow>-diagram.mmd, leave the architecture and cross-cutting sections in design.md, and link each spec from its Flows index"
+- docs/specs/ -- docs/design.md is over 400 lines with no per-flow specs; create docs/specs/ and split each flow into docs/specs/<flow>.md (skeleton in CLAUDE.md) plus docs/specs/<flow>-diagram.mmd, leave the architecture and cross-cutting sections in design.md, and link each spec from its Flows index"
 fi
 
 # Anything that moves the deployed GCP footprint moves the bill.

@@ -9,7 +9,6 @@ my-project/
 ├── .claude/
 │   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
-│   └── specs/               # TEMPLATE.md; per-flow specs land here as the design grows
 ├── scripts/
 │   ├── code-review.sh       # two-pass agentic code review, runs on git push
 │   └── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
@@ -82,7 +81,7 @@ A new project gets a single `docs/design.md`, which is right until it isn't. Pas
 
 So the scaffold names the threshold instead of leaving it to taste: once `design.md` passes 400 lines or covers three or more flows, each flow moves into `docs/specs/<flow>.md` with a `docs/specs/<flow>-diagram.mmd` beside it. `design.md` keeps the overview, a Flows index linking each spec, the architecture, the data flow between components, deployment, and the cross-cutting concerns. A spec takes its flow's step-by-step behavior, the tools and endpoints only it calls, its configuration, its edge cases, and its limits. Nothing is stated in both places — the index line plus the link is the whole handoff, and each spec links back up to `design.md` and down to its own diagram.
 
-`docs/specs/TEMPLATE.md` ships with the project as the shape a spec starts from: what it does, components, configuration, auth, limits and out of scope, open questions. Copying a filled-in structure beats inventing one per flow, and it lands in the repo rather than in the skill so teammates without the skill still have it.
+A new project has no `docs/specs/` directory. It gets created at the split, by whoever writes the first spec. The shape a spec starts from — what it does, components, configuration, auth, limits and out of scope, open questions — lives as a skeleton inside `CLAUDE.md`, so a fresh repo carries no empty directory and no template file waiting on a flow that may never come. Copying a filled-in structure beats inventing one per flow, and `CLAUDE.md` ships with the repo, so teammates without the skill still have it.
 
 What holds the set together is enforced by the sync gate rather than left to discipline: a spec's diagram tracks the spec, a spec is reachable from the index, and a `design.md` that has outgrown itself gets split. `CLAUDE.md` carries the same rule for the agent, and the review's spec pass reads the flow's spec as the source of truth for that flow.
 

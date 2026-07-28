@@ -107,18 +107,53 @@ Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SK
 Project docs live in `docs/`:
 - `design.md` — RFC; defines architecture and design decisions
 - `design.mmd` — Mermaid diagram of the design
-- `specs/<flow>.md` — one spec per end-to-end flow, once the design is large enough to split (see below)
-- `specs/<flow>-diagram.mmd` — Mermaid diagram for that flow
-- `specs/TEMPLATE.md` — the shape a new spec starts from; copy it, don't edit it
 {{gcp-doc-lines}}
+
+`docs/specs/` does not exist yet. Create it — and only then — when the design is large enough to split (see below); a new project has nothing to put in it.
 
 ### Splitting design.md into per-flow specs
 
-While the project is small, `design.md` holds everything. Once it passes ~400 lines or covers three or more flows, split it: each flow becomes `docs/specs/<flow>.md` (copied from `docs/specs/TEMPLATE.md`) with a `docs/specs/<flow>-diagram.mmd` beside it.
+While the project is small, `design.md` holds everything. Once it passes ~400 lines or covers three or more flows, split it: create `docs/specs/` and give each flow a `docs/specs/<flow>.md` (kebab-case, from the skeleton below) with a `docs/specs/<flow>-diagram.mmd` beside it.
 
 `design.md` keeps the overview, the Flows index, the architecture, the data flow between components, deployment, and anything cross-cutting (auth, observability, security). Each spec takes its flow's step-by-step behavior, the tools and endpoints only it calls, its configuration, its edge cases, and its limits. Don't restate a spec's contents in `design.md` — the index line plus the link is the whole handoff.
 
 A spec is the source of truth for its flow. When a change touches one flow, that spec is the doc to read first and the doc to update.
+
+Start each new spec from this skeleton. Fill it in, drop the sections that don't apply, and keep both links — the up-link to `design.md` and the down-link to the diagram are how the set stays navigable.
+
+````markdown
+# Spec — <Flow Name>
+
+Flow covered: **<Flow Name>** — one sentence on what the user asks for and what they get back.
+
+Diagram: [<flow>-diagram.mmd](<flow>-diagram.mmd). High-level architecture: [design.md](../design.md).
+
+## How it works
+
+Numbered steps through the flow. Name the actual functions, endpoints, and tools, and link to the source files. State what happens on the unhappy paths — no match, ambiguous match, upstream error, missing permission.
+
+## Components and integrations
+
+What this flow touches. A table works well past two or three.
+
+## Configuration
+
+Settings this flow reads, where they come from, and what happens when one is unset.
+
+## Auth and access
+
+Whose identity each call runs as, and what that means for what the user can see.
+
+## Limits and out of scope
+
+What this flow deliberately does not do, and the data it does not have. Record the shortcuts here rather than leaving them implicit.
+
+## Open questions
+
+Decisions still outstanding, each with who owns it. Delete the section when it empties.
+````
+
+The matching `docs/specs/<flow>-diagram.mmd` starts from the same shape as `docs/design.mmd`: a `%%{init: {'theme':'forest'}}%%` line, `graph TD`, then the nodes and edges for that flow only.
 
 **Sync rules**: After editing `docs/design.md`, update `docs/design.mmd` to match before reporting done. After editing a spec, update its `-diagram.mmd`. A new spec must be linked from the Flows index in `docs/design.md`.
 {{gcp-sync-rule}}
