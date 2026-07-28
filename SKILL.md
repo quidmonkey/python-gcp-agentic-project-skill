@@ -133,7 +133,7 @@ uv run pre-commit install
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
-- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform` commands, prompts on writes)
+- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes)
 - Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`; a changed spec's `docs/specs/<flow>-diagram.mmd` is stale or the spec isn't linked from the Flows index in `docs/design.md`; `docs/design.md` is over 400 lines with no per-flow specs yet; or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
 - Docs: `docs/design.md`, `docs/design.mmd`, `docs/specs/TEMPLATE.md` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Design doc split: while the project is small `design.md` holds everything. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (copied from `TEMPLATE.md`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
