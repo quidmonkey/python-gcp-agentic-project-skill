@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.12.0
+version: 2.13.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -130,11 +130,49 @@ uv run pre-commit install
 
 `default_install_hook_types` in `.pre-commit-config.yaml` makes this install both the pre-commit and pre-push stages — pre-push carries the pytest and code-review hooks.
 
-## Step 7: Report
+## Step 7: Trust the workspace
+
+Claude Code drops every project-scoped `permissions.allow` entry until the workspace is trusted, so a freshly scaffolded project starts with all 182 pre-approvals inert and all 24 `ask` rules live — maximally prompt-y. Record trust for the new directory so `.claude/settings.json` takes effect on first use.
+
+Run from the project root. Both path spellings are recorded because Claude Code keys projects by the cwd it was started with, which may be a symlinked path. `uv run python` is used rather than a bare `python3` — uv is already a hard requirement and the project env exists by now, whereas `python3` goes through whatever version manager the user has and can fail inside a directory holding a `.python-version` file.
+
+```bash
+uv run python - "$(pwd)" "$(pwd -P)" <<'PY'
+import json, os, sys, tempfile
+
+config = os.path.expanduser("~/.claude.json")
+keys = list(dict.fromkeys(sys.argv[1:]))
+
+try:
+    with open(config) as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+except json.JSONDecodeError:
+    sys.exit(f"~/.claude.json is not valid JSON — leaving it alone. Accept the trust dialog manually in {keys[0]}.")
+
+projects = data.setdefault("projects", {})
+for key in keys:
+    projects.setdefault(key, {})["hasTrustDialogAccepted"] = True
+
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(config), suffix=".tmp")
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+os.replace(tmp, config)
+print("Trusted workspace:", *keys)
+PY
+```
+
+The write is read-modify-replace on the whole file, so it preserves every other key. It is not concurrency-safe: another Claude Code session running at the same time holds `~/.claude.json` state in memory and will overwrite this on its next flush. If that happens, re-run the block.
+
+If the script exits with the JSON error, report it — do not hand-edit `~/.claude.json`, and tell the user to run `claude` in the project once and accept the dialog instead.
+
+## Step 8: Report
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit
 - Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes)
+- Workspace trust: recorded in `~/.claude.json` (`hasTrustDialogAccepted`), so the allowlist is live on first run with no trust dialog. Say so explicitly — the user is entitled to know a scaffold granted its own pre-approvals
 - Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`; a changed spec's `docs/specs/<flow>-diagram.mmd` is stale or the spec isn't linked from the Flows index in `docs/design.md`; `docs/design.md` is over 400 lines with no per-flow specs yet; or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Design doc split: while the project is small `design.md` holds everything, and `docs/specs/` doesn't exist. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (skeleton in `CLAUDE.md`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
