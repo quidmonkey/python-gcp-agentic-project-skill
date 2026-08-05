@@ -12,8 +12,8 @@ review_model=sonnet
 enabled=true
 
 # Required when review_agent=custom. The command receives the review prompt on
-# stdin and must print its review to stdout, ending with a line that reads
-# "VERDICT: PASS" or "VERDICT: FAIL".
+# stdin and must print its review to stdout, whose last non-empty line reads
+# "VERDICT: PASS" or "VERDICT: FAIL" and is followed by nothing else.
 # command=my-agent --headless
 
 # --- Auto-fix (optional) -----------------------------------------------------

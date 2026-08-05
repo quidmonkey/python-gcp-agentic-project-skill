@@ -233,9 +233,10 @@ mkdir -p working
 } > "$report"
 
 # finish_pass <title> <output-file> <agent-exit-status> — appends the pass
-# output to the report. Returns 0 only if the agent exited 0 and the FINAL
-# line of the output is "VERDICT: PASS" — a verdict quoted or drafted
-# mid-output must not count.
+# output to the report. Returns 0 only if the agent exited 0 and the LAST
+# NON-EMPTY line of the output is "VERDICT: PASS" — a verdict quoted or drafted
+# mid-output must not count. Markdown emphasis and backticks are stripped first,
+# so "**VERDICT: PASS**" counts; a verdict anywhere but the end does not.
 finish_pass() {
     local title=$1 file=$2 status=$3 output
     output=$(cat "$file")
@@ -249,7 +250,8 @@ finish_pass() {
         echo "Agent failed (exit $status) during $title — see $report" >&2
         return 1
     fi
-    printf '%s\n' "$output" | tail -n 1 | grep -q '^VERDICT: PASS[[:space:]]*$'
+    printf '%s\n' "$output" | grep -v '^[[:space:]]*$' | tail -n 1 | tr -d '*`' |
+        grep -q '^[[:space:]]*VERDICT: PASS[[:space:]]*$'
 }
 
 # show_pass <title> <output-file> <ok> — prints a pass's review so the results
@@ -316,9 +318,11 @@ Use REQUIRED only for findings that must be fixed before this code merges.
 Use SUGGESTED for improvements the code could reasonably ship without.
 If there are no findings, say so.
 
-End with your verdict on its own line, as plain text with no backticks or
-other formatting. The final line must be exactly VERDICT: PASS if there are
-no REQUIRED findings, otherwise exactly VERDICT: FAIL.
+End with your verdict, as plain text with no bold, backticks, or other
+formatting. The very last line of your output must be exactly VERDICT: PASS if
+there are no REQUIRED findings, otherwise exactly VERDICT: FAIL. Write nothing
+after it — no summary sentence, no closing remark. A verdict placed anywhere but
+the last line, or wrapped in formatting, is read as FAIL and blocks the push.
 EOF
 
     read -r -d '' p2 <<EOF || true
@@ -348,9 +352,11 @@ Report every finding as a markdown bullet:
 
 If there are no findings, say so.
 
-End with your verdict on its own line, as plain text with no backticks or
-other formatting. The final line must be exactly VERDICT: PASS if there are
-no REQUIRED findings, otherwise exactly VERDICT: FAIL.
+End with your verdict, as plain text with no bold, backticks, or other
+formatting. The very last line of your output must be exactly VERDICT: PASS if
+there are no REQUIRED findings, otherwise exactly VERDICT: FAIL. Write nothing
+after it — no summary sentence, no closing remark. A verdict placed anywhere but
+the last line, or wrapped in formatting, is read as FAIL and blocks the push.
 EOF
 
     o1=$(mktemp)
