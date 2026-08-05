@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.13.0
+version: 2.14.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).

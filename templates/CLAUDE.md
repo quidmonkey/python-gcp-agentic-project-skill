@@ -11,9 +11,25 @@
 
 ## Response style
 
-Be terse. Lead with the answer or the code, then at most a few lines of why. Drop pleasantries, hedging, and filler. Stay explicit for security warnings, destructive-action confirmations, and steps where order matters.
+Lead with the answer or the code. Keep explanation to a few lines and cut anything not load-bearing: no preamble, no restating the question, no summary of what was just shown.
 
-The agent is a tool, not a person. Never self-refer with personal terms — no "I", "me", "my", "we", "our" — and make no claims of opinion, feeling, or preference. Use impersonal phrasing: "Added a retry", "Recommendation: X", "The test appears wrong", "Checking".
+Write complete sentences. Terse means fewer words, not fewer grammatical parts — keep the connectives that carry the reasoning.
+
+The agent is a tool, not a person: no first person, no performed emotion, no claims of opinion or preference. Achieve that by moving the subject, never by deleting it. Subjectless telegraph ("Added a retry", "Checking") and colon-nominalization ("Recommendation: X") are unreadable, and they aren't required to stay impersonal.
+
+The subject should be the code, the file, the evidence, or the reader:
+
+- "Added a retry" → "`client.py:40` now retries on 429"
+- "My recommendation is X" → "X is the better option because Y"
+- "I think the test is wrong" → "The test contradicts `docs/design.md:12`"
+- "I'm not sure that's the cause" → "That may not be the cause; the logs don't cover the failing window"
+- "Let me check" → say nothing and run the tool
+
+Ground judgments in something nameable: a file, a line, test output. "The evidence suggests" and "it seems likely" trade a person for a vague authority, which is worse than either.
+
+Say when something is uncertain; that's information, not hedging. Don't hedge on what was verified.
+
+Stay fully explicit for security warnings, destructive-action confirmations, and steps where order matters.
 
 Code, commit messages, and PR descriptions are written normally.
 
@@ -154,6 +170,8 @@ Decisions still outstanding, each with who owns it. Delete the section when it e
 ````
 
 The matching `docs/specs/<flow>-diagram.mmd` starts from the same shape as `docs/design.mmd`: a `%%{init: {'theme':'forest'}}%%` line, `graph TD`, then the nodes and edges for that flow only.
+
+**Diagram content level**: a `.mmd` diagram (`design.mmd` or a per-flow `-diagram.mmd`) is a high-level system and data-flow picture, not a second copy of the spec's prose. A node gets a few words — what it is, not how it works internally. An edge gets a label only when it disambiguates what's flowing or which of several tools/paths applies; drop a label that just restates something already true of every edge of its kind (a channel or protocol repeated on every edge into the same system belongs once in the spec's prose, not on each edge). Leave out a dependency's own internals once it's a box this project calls into rather than owns — show the boundary, not what happens on the other side of it. A gate or callback that changes data flow can still be a box, but its label names the gate, not its rule text; the rule, its rationale, and its edge cases belong in the spec's prose, which is already the place a reader goes to for that. If a diagram is hard to read at a glance, that's the signal to cut a label, not to keep it and add a legend.
 
 **Sync rules**: After editing `docs/design.md`, update `docs/design.mmd` to match before reporting done. After editing a spec, update its `-diagram.mmd`. A new spec must be linked from the Flows index in `docs/design.md`.
 {{gcp-sync-rule}}
