@@ -100,9 +100,11 @@ If design, architecture, or public API changed, update `docs/design.md` — or t
 
 ## Code review gate
 
-`git push` triggers a two-pass agentic review (pre-push hook, `scripts/code-review.sh`): pass 1 is a general review (DRY, YAGNI, library leverage, missing tests, security), pass 2 checks the change against the intent in `docs/`. Any REQUIRED finding blocks the push. The hook prints both passes' findings and writes the full report to `working/code-review-report.md`; fix every REQUIRED finding at root cause, commit, and push again — only new commits get re-reviewed. Config lives in `.codereviewrc`.
+`git push` triggers a two-pass agentic review (pre-push hook, `scripts/code-review.sh`): pass 1 is a general review (DRY, YAGNI, library leverage, missing tests, security), pass 2 checks the change against the intent in `docs/`. Any REQUIRED finding blocks the push. The hook prints both passes' findings and writes the full report to `working/code-review-report.md`; fix every REQUIRED finding at root cause, commit, and push again — only new commits get re-reviewed. Config lives in `.codereviewrc` (gitignored, personal — not shared team policy).
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
+
+`make ship` (`scripts/ship.sh`) pushes the branch, then opens a PR, self-approves it, and enables auto-merge, landing it once checks and any required review clear — then checks out the default branch, pulls, and deletes the branch. It runs the same push (and the same review gate) as `git push`; it does not add a second way to bypass a failing review.
 
 ## Testing
 

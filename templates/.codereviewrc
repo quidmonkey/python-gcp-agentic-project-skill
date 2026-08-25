@@ -16,7 +16,7 @@ enabled=true
 # "VERDICT: PASS" or "VERDICT: FAIL" and is followed by nothing else.
 # command=my-agent --headless
 
-# --- Auto-fix (optional) -----------------------------------------------------
+# --- Auto-fix -----------------------------------------------------------------
 
 # When true, a failed review hands its REQUIRED findings to a fix agent that
 # edits the working tree to resolve them, then re-reviews and fixes again in a
@@ -24,8 +24,9 @@ enabled=true
 # review passes' findings go to a single fix agent (no per-issue parallelism —
 # coupled fixes and shared root causes need one coherent pass). Fixes are left
 # uncommitted; the push stays blocked so you review, commit, and push again.
-# Set to false to skip fixing.
-fix_enabled=false
+# On by default so a push keeps looping until it passes. Set to false to skip
+# fixing and stop at the first failed review instead.
+fix_enabled=true
 
 # Agent used to apply fixes when fix_enabled=true: claude | custom
 fix_agent=claude
@@ -40,3 +41,38 @@ fix_max_iterations=2
 # Required when fix_agent=custom. The command receives the fix prompt (which
 # points at the findings) on stdin and must edit the working tree.
 # fix_command=my-agent --headless --write
+
+# --- PR automation (optional) -------------------------------------------------
+# Read by scripts/ship.sh, run manually (`make ship`) once a branch is ready to
+# land — never by the pre-push hook itself: that hook runs before the commits
+# reach the remote, and a PR can't be opened against commits the host doesn't
+# have yet. ship.sh pushes first (running the review gate above), then opens
+# the PR, so a REQUIRED finding still blocks exactly like a plain `git push`.
+
+# When true, ship.sh opens a PR after the push succeeds, self-approves it,
+# enables auto-merge, and on merge checks out the default branch, pulls, and
+# deletes the branch (local and remote). On by default: the review above
+# already gates quality, so landing a passing branch is meant to be hands-off.
+# Set to false to have ship.sh just push.
+pr_automation=true
+
+# CLI used to open/approve/merge the PR: gh | az. Auto-detected from
+# `git remote get-url origin` when unset (github.com -> gh, anything else ->
+# az). Set explicitly only to override detection.
+# pr_host=gh
+
+# Merge method used when auto-merge completes: squash | merge | rebase
+pr_merge_method=squash
+
+# Self-approve the PR before enabling auto-merge. Best-effort: many hosts
+# reject a self-review on a branch that requires approval from someone else —
+# when that happens this is a no-op, and auto-merge still queues normally,
+# waiting for a human reviewer instead of failing the run.
+pr_self_approve=true
+
+# How ship.sh waits for auto-merge to complete: poll every pr_poll_interval
+# seconds, up to pr_poll_timeout seconds total. Past the timeout, ship.sh exits
+# nonzero with auto-merge still armed — check the PR and let it land, or fix
+# whatever's blocking it (failing required check, unresolved review, etc.).
+pr_poll_interval=15
+pr_poll_timeout=1800

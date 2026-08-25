@@ -8,3 +8,6 @@ dist/
 *.egg-info/
 .claude/skills/
 working/
+# Personal review/ship automation settings — not team policy, see .codereviewrc's
+# own comments. Scaffolded fresh for every clone; not synced between machines.
+.codereviewrc

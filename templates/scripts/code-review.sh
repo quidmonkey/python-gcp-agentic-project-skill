@@ -9,14 +9,26 @@
 # .git/code-review-ledger, and later pushes review only new commits since.
 # The full report is written to working/code-review-report.md (gitignored).
 #
-# When fix_enabled=true, a failed review hands its REQUIRED findings (both
-# passes combined) to a single fix agent that edits the working tree to resolve
-# them. Fixes are left uncommitted for review; the push stays blocked.
+# fix_enabled defaults to true: a failed review hands its REQUIRED findings
+# (both passes combined) to a single fix agent that edits the working tree to
+# resolve them, then re-reviews and fixes again in a loop (fix_max_iterations
+# rounds). Fixes are left uncommitted for review; the push stays blocked either
+# way — a passing working tree isn't a passing commit yet.
 #
 # Config: .codereviewrc (key=value) — review_agent, review_model, enabled,
 #         command, fix_enabled, fix_agent, fix_model, fix_command.
 # Skip:   SKIP_CODE_REVIEW=true git push, or enabled=false in .codereviewrc.
+#
+# After a push succeeds, `make ship` (scripts/ship.sh) opens a PR, self-
+# approves and auto-merges it, then checks out and cleans up the branch. It's
+# a separate script, not another stage of this hook: pre-push runs before the
+# commits reach the remote, and a PR can't be opened against commits the host
+# doesn't have yet.
 set -u
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
 
 rc_file=".codereviewrc"
 report="working/code-review-report.md"
@@ -30,14 +42,6 @@ case "${SKIP_CODE_REVIEW:-}" in
         ;;
 esac
 
-# key=value, one per line. Strips inline comments (whitespace then #) and
-# surrounding whitespace, so a line copied with its trailing comment parses.
-rc_get() {
-    sed -n "s/^$1=//p" "$rc_file" 2>/dev/null | tail -n 1 \
-        | sed -e 's/[[:space:]][[:space:]]*#.*$//' \
-              -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-}
-
 review_agent=$(rc_get review_agent)
 review_agent=${review_agent:-claude}
 # Pinned so the gate's cost doesn't move when the CLI's default model changes:
@@ -49,9 +53,10 @@ enabled=${enabled:-true}
 custom_cmd=$(rc_get command)
 
 # Auto-fix: after a failed review, hand the REQUIRED findings to a fix agent
-# that edits the working tree. Off by default; fixes are left uncommitted.
+# that edits the working tree. On by default so a push keeps looping fix ->
+# re-review until it passes; fixes are always left uncommitted.
 fix_enabled=$(rc_get fix_enabled)
-fix_enabled=${fix_enabled:-false}
+fix_enabled=${fix_enabled:-true}
 fix_agent=$(rc_get fix_agent)
 fix_agent=${fix_agent:-claude}
 # The fixer writes code, so it gets the stronger default of the two.
@@ -171,8 +176,7 @@ branch="${PRE_COMMIT_LOCAL_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 branch=${branch#refs/heads/}
 ledger="$(git rev-parse --git-dir)/code-review-ledger"
 
-default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
-default_branch=${default_branch:-main}
+base_branch=$(default_branch)
 
 last_reviewed=""
 [ -f "$ledger" ] && last_reviewed=$(awk -v b="$branch" '$1 == b { print $2 }' "$ledger")
@@ -193,15 +197,15 @@ elif [ -n "$from_ref" ]; then
 elif [ -z "$to_ref" ] && base=$(git rev-parse -q --verify '@{upstream}' 2>/dev/null); then
     # Manual run (make review): everything not yet pushed upstream.
     :
-elif base=$(git merge-base "origin/$default_branch" "$head_sha" 2>/dev/null) \
-    || base=$(git merge-base "$default_branch" "$head_sha" 2>/dev/null); then
+elif base=$(git merge-base "origin/$base_branch" "$head_sha" 2>/dev/null) \
+    || base=$(git merge-base "$base_branch" "$head_sha" 2>/dev/null); then
     # First review of a branch: the whole branch vs the default branch.
     :
 elif [ -z "$(git for-each-ref refs/remotes)" ]; then
     # Brand-new repository with no remote branches: everything is new.
     base=$empty_tree
 else
-    echo "ERROR: cannot determine a review base — branch '$default_branch' not found." >&2
+    echo "ERROR: cannot determine a review base — branch '$base_branch' not found." >&2
     echo "Set the remote default branch (git remote set-head origin -a) and retry." >&2
     exit 1
 fi

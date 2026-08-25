@@ -1,4 +1,4 @@
-.PHONY: help setup test lint check run-check review
+.PHONY: help setup test lint check run-check review ship
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -29,6 +29,9 @@ run-check: ## Confirm the app still runs (keep this current as the app evolves)
 
 review: ## Run the two-pass agentic code review (also runs on git push)
 	bash scripts/code-review.sh
+
+ship: ## Push, then open/approve/auto-merge a PR and clean up the branch (see .codereviewrc)
+	bash scripts/ship.sh
 
 # deploy: ## Deploy to GCP
 # 	terraform -chdir=infra apply

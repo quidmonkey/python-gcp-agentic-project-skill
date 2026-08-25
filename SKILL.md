@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.14.0
+version: 2.15.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -87,8 +87,10 @@ Notes:
 | `templates/pyproject-additions.toml` | `pyproject.toml` | append |
 | `templates/CLAUDE.md` | `CLAUDE.md` | write |
 | `templates/README.md` | `README.md` | write |
-| `templates/.codereviewrc` | `.codereviewrc` | write |
+| `templates/.codereviewrc` | `.codereviewrc` | write — gitignored, not `git add`ed |
+| `templates/scripts/lib/common.sh` | `scripts/lib/common.sh` | write |
 | `templates/scripts/code-review.sh` | `scripts/code-review.sh` | write |
+| `templates/scripts/ship.sh` | `scripts/ship.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/Makefile` | `Makefile` | write |
@@ -101,8 +103,8 @@ Notes:
 Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
-mkdir -p .claude docs working scripts
-chmod +x scripts/code-review.sh scripts/docs-sync-check.sh
+mkdir -p .claude docs working scripts/lib
+chmod +x scripts/code-review.sh scripts/ship.sh scripts/docs-sync-check.sh
 ```
 
 Do not create `docs/specs/`. It comes into existence when the design outgrows one file; `CLAUDE.md` carries the spec skeleton and the rule for creating it then.
@@ -177,7 +179,9 @@ If the script exits with the JSON error, report it — do not hand-edit `~/.clau
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Design doc split: while the project is small `design.md` holds everything, and `docs/specs/` doesn't exist. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (skeleton in `CLAUDE.md`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
 - Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude, `review_model` to sonnet); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
-- Auto-fix (optional): `fix_enabled=true` in `.codereviewrc` (default false) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked
+- Auto-fix: `fix_enabled=true` in `.codereviewrc` (default true) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked
+- Shipping: `make ship` (`scripts/ship.sh`) pushes the branch (same review gate as `git push`), then — when `pr_automation=true` in `.codereviewrc` (default) — opens a PR via `gh` or `az repos pr` (auto-detected from `origin`), self-approves it (best-effort), enables auto-merge/auto-complete, polls until it lands, then checks out the default branch, pulls, and deletes the branch. Not a git hook: it runs after `git push` succeeds, since a PR can't be opened against commits the host doesn't have yet
+- `.codereviewrc` is gitignored, not committed: review-gate settings are personal defaults baked into the scripts (an absent file behaves identically), and `pr_automation` is a per-developer call that shouldn't auto-merge a teammate's pushes just because they pulled a commit
 - App run check: `make run-check` — the agent runs it after every code change per `CLAUDE.md`, and a pre-push hook runs it as a backstop; ships as an import check, to be upgraded once the app has a real entry point
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `google-agents-cli` (project plugin — only if install above succeeded). Humanizing is baked into `CLAUDE.md`, no skill needed.

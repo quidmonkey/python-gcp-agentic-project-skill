@@ -18,6 +18,7 @@ make lint       # run all pre-commit hooks
 make check      # ruff + ty
 make run-check  # confirm the app still starts (also runs on git push)
 make review     # run the code review manually (also runs on git push)
+make ship       # push, open/approve/auto-merge a PR, clean up the branch
 ```
 
 Tools run through `uv run`, so nothing needs to be installed globally.
@@ -51,11 +52,18 @@ review_model=sonnet    # model for the review passes (alias or full name)
 enabled=true           # false disables the review
 # command=...          # for review_agent=custom: reads the prompt on stdin, prints the review
 
-fix_enabled=false      # true auto-fixes REQUIRED findings after a failed review
+fix_enabled=true       # false skips auto-fix and stops at the first failed review
 fix_agent=claude       # claude | custom
 fix_model=opus         # model for the fix pass
 fix_max_iterations=2   # max fix -> re-review rounds before giving up
 # fix_command=...      # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
+
+pr_automation=true     # false: `make ship` just pushes and leaves the PR to you
+# pr_host=gh           # gh | az, auto-detected from origin's remote URL
+pr_merge_method=squash # squash | merge | rebase, used once auto-merge completes
+pr_self_approve=true   # best-effort; a no-op if the host rejects self-review
+pr_poll_interval=15    # seconds between polls while waiting for auto-merge
+pr_poll_timeout=1800   # give up waiting after this many seconds (auto-merge stays armed)
 ```
 
 The models are pinned rather than inherited from the `claude` CLI default, so the gate's cost doesn't move when that default changes. One blocked push with `fix_enabled=true` runs up to 6 review passes and 2 fix passes.
@@ -69,6 +77,16 @@ SKIP_CODE_REVIEW=true git push
 ```
 
 Or set `enabled=false` in `.codereviewrc` to turn it off for the repo. Skipping is for humans; agents working in this repo are instructed not to.
+
+## Shipping a branch
+
+`make ship` (`scripts/ship.sh`) pushes the current branch, opens a PR against the default branch, self-approves it, enables auto-merge, and once it lands, checks out the default branch, pulls, and deletes the branch (local and remote).
+
+It's a separate script from the pre-push hook: `code-review.sh` runs before the commits reach the remote, so it can't open a PR against them. `ship.sh` pushes first — running the same review gate above — and only opens the PR once that push succeeds. The PR title and description come from the branch's own commit log, not a generated summary.
+
+`ship.sh` picks `gh` or `az repos pr` from `origin`'s remote URL unless `pr_host` is set. Self-approval is best-effort: on a branch that requires review from someone else, the host rejects it and auto-merge (not an immediate merge) waits for a real reviewer instead of failing. Set `pr_automation=false` to have `make ship` just push and leave the PR to you.
+
+`.codereviewrc` is gitignored and personal to your machine — `pr_automation` decides whether *your* pushes get auto-merged, which shouldn't flip on for a teammate just because they pulled a commit. Every default above is baked into the scripts, so a fresh clone with no `.codereviewrc` at all behaves exactly like the file shown here; edit your local copy only to actually change something.
 
 ## Documentation
 

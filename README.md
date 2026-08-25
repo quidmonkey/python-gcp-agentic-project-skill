@@ -10,9 +10,11 @@ my-project/
 │   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
 ├── scripts/
+│   ├── lib/common.sh        # shared rc-parsing/default-branch helpers
 │   ├── code-review.sh       # two-pass agentic code review, runs on git push
+│   ├── ship.sh              # push, then open/approve/auto-merge a PR and clean up (make ship)
 │   └── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
-├── .codereviewrc            # code review config: agent, enabled, custom command
+├── .codereviewrc            # review + ship config: agent, enabled, pr_automation (gitignored, personal)
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
 ├── .pre-commit-config.yaml  # all hooks configured (pre-commit + pre-push stages)
 ├── .gitignore
@@ -104,7 +106,7 @@ Findings come back as REQUIRED or SUGGESTED. Both passes' findings are printed t
 
 Reviews are incremental: the last passing commit for each branch is recorded in `.git/code-review-ledger`, so the next push reviews only new commits. An unchanged branch is never re-reviewed.
 
-Optionally, a failed review can fix itself: set `fix_enabled=true` and the REQUIRED findings from both passes go to a single fix agent that edits the working tree, then the review runs again over the tree. Fix → re-review loops until it passes or `fix_max_iterations` is hit. The fixes are always left uncommitted and the push always stays blocked, even on success — what passed is a working tree, not a commit, so it can't be recorded or shipped. Review the diff, commit, push again.
+A failed review fixes itself by default (`fix_enabled=true`): the REQUIRED findings from both passes go to a single fix agent that edits the working tree, then the review runs again over the tree. Fix → re-review loops until it passes or `fix_max_iterations` is hit. The fixes are always left uncommitted and the push always stays blocked, even on success — what passed is a working tree, not a commit, so it can't be recorded or shipped. Review the diff, commit, push again — the committed fixes get one honest re-review, and that's the pass that gets recorded.
 
 Both agents are configurable via `.codereviewrc`:
 
@@ -114,7 +116,7 @@ Both agents are configurable via `.codereviewrc`:
 | `review_model` | model alias or full name | `sonnet` |
 | `enabled` | `true` / `false` | `true` |
 | `command` | shell command for `review_agent=custom`; receives the prompt on stdin | — |
-| `fix_enabled` | `true` / `false` | `false` |
+| `fix_enabled` | `true` / `false` | `true` |
 | `fix_agent` | `claude`, `custom` | `claude` |
 | `fix_model` | model alias or full name | `opus` |
 | `fix_max_iterations` | positive integer | `2` |
@@ -123,6 +125,27 @@ Both agents are configurable via `.codereviewrc`:
 The contract is agent-agnostic: whatever runs must print its review to stdout and end with `VERDICT: PASS` or `VERDICT: FAIL`. Models are pinned rather than inherited from the `claude` CLI default so the gate's cost doesn't drift when that default changes — one blocked push with auto-fix on runs up to 6 review passes and 2 fix passes. A misconfigured file (unknown agent, `custom` with no command) blocks the push rather than silently disabling the gate.
 
 Escape hatches: `SKIP_CODE_REVIEW=true git push` skips one push, `enabled=false` turns it off for the repo. If the agent CLI isn't installed at all, the hook warns and fails open so teammates without it aren't blocked.
+
+## Shipping a branch
+
+`make ship` (`scripts/ship.sh`) takes a branch from "ready" to "merged and cleaned up": push, open a PR, self-approve it, enable auto-merge, and once it lands, check out the default branch, pull, and delete the branch — local and remote.
+
+It's a separate script from the pre-push hook on purpose. `code-review.sh` runs *before* the commits reach the remote, which is how it can block a bad push; a PR can't be opened against commits the host doesn't have yet. So `ship.sh` pushes first — running the same review gate a plain `git push` would — and only proceeds to the PR once that push actually succeeds. A REQUIRED finding blocks `ship.sh` exactly like it blocks `git push` today.
+
+The PR title and description come from the branch's own commit log (oldest first), not a generated summary — the commits already say what changed. `ship.sh` picks `gh` or `az repos pr` based on `origin`'s remote URL (`github.com` → `gh`, anything else → `az`), self-approves the PR, then hands it to the host's auto-merge (`gh pr merge --auto` / `az repos pr update --auto-complete`) rather than merging immediately. That matters on a repo with branch protection: self-approval is best-effort and silently becomes a no-op if the host rejects a self-review, and auto-merge (instead of an immediate merge) still waits correctly for any required check or a human reviewer rather than erroring out.
+
+Configuration, also in `.codereviewrc`:
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `pr_automation` | `true` / `false` | `true` |
+| `pr_host` | `gh`, `az` | auto-detected from `origin` |
+| `pr_merge_method` | `squash`, `merge`, `rebase` | `squash` |
+| `pr_self_approve` | `true` / `false` | `true` |
+| `pr_poll_interval` | seconds between merge-status polls | `15` |
+| `pr_poll_timeout` | seconds to wait before giving up (auto-merge stays armed) | `1800` |
+
+`.codereviewrc` is gitignored: `review_agent`/`fix_enabled` are the kind of thing a team wants applied consistently, but `pr_automation` is a personal call about whether *your* pushes get auto-merged, not something a committed file should turn on for every teammate the moment they pull. Nothing depends on the file actually existing — every key's default matches the scaffolded file's own values, so a clone with no `.codereviewrc` behaves identically. The scaffold still writes one, so there's something local to edit when a setting needs to change.
 
 ## Installation
 
