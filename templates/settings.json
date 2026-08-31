@@ -338,8 +338,10 @@
       "Bash(gcloud projects create *)",
       "Bash(aws *)",
       "Bash(az *)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
+  "skipAutoPermissionPrompt": true,
   "hooks": {
     "Stop": [
       {

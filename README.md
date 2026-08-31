@@ -7,7 +7,7 @@ A Claude Code skill that scaffolds Python projects with `uv`. One command wires 
 ```
 my-project/
 ├── .claude/
-│   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist
+│   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist; auto mode on
 ├── docs/                    # design.md, design.mmd (+ finops.md, infra.md for GCP)
 ├── scripts/
 │   ├── lib/common.sh        # shared rc-parsing/default-branch helpers
@@ -60,6 +60,8 @@ The same file pre-approves read-only `gcloud`, `terraform`, and `docker` command
 None of those rules apply until the workspace is trusted. Claude Code discards project-scoped `permissions.allow` entries in an untrusted directory, which leaves a new project in the worst state: the `ask` rules are enforced, the pre-approvals are gone, and every allowlisted read verb prompts anyway. The `deny` and `ask` arrays are never gated, only `allow`. So the skill records the new directory as trusted in `~/.claude.json` (`hasTrustDialogAccepted`) as part of scaffolding — the allowlist works on the first run and there's no trust dialog. Both the logical and physical spellings of the path are recorded, since Claude Code keys projects by the working directory it was launched with. To undo it, set that key back to `false`.
 
 The `Stop` hooks don't depend on trust; they run either way.
+
+`permissions.defaultMode` is set to `auto`, and top-level `skipAutoPermissionPrompt` is `true`, so a scaffolded project starts in auto mode with no opt-in prompt: the auto-mode classifier adjudicates tool calls instead of the static `allow`/`ask`/`deny` lists deciding everything up front. Those lists still matter — `deny` and hard-coded destructive-command checks apply regardless of mode — but most read/write decisions in between go through the classifier. Set `defaultMode` back to `default` (or drop it) in a project's `.claude/settings.json` to opt back into manual prompts.
 
 Precedence matters if you edit any of this. `deny` beats `ask` beats `allow`, across every settings file. A blanket `Bash(gcloud *)` in an `ask` array silently kills every specific `gcloud` allow rule, these included. The specific rules stay in the file; they just stop doing anything.
 
