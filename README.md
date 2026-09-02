@@ -12,7 +12,8 @@ my-project/
 ├── scripts/
 │   ├── lib/common.sh        # shared rc-parsing/default-branch helpers
 │   ├── code-review.sh       # two-pass agentic code review, runs on git push
-│   ├── ship.sh              # push, then open/approve/auto-merge a PR and clean up (make ship)
+│   ├── ship.sh              # push, then (if enabled) open/approve/auto-merge a PR and clean up (make ship)
+│   ├── enable-auto-pr.sh    # turns on ship.sh's PR automation (make setup prompt, make auto-pr)
 │   └── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
 ├── .codereviewrc            # review + ship config: agent, enabled, pr_automation (gitignored, personal)
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
@@ -130,9 +131,9 @@ Escape hatches: `SKIP_CODE_REVIEW=true git push` skips one push, `enabled=false`
 
 ## Shipping a branch
 
-`make ship` (`scripts/ship.sh`) takes a branch from "ready" to "merged and cleaned up": push, open a PR, self-approve it, enable auto-merge, and once it lands, check out the default branch, pull, and delete the branch — local and remote.
+`make ship` (`scripts/ship.sh`) always pushes the current branch, running the same review gate a plain `git push` would. Whether it goes further — opening a PR, self-approving it, enabling auto-merge, and once it lands checking out the default branch, pulling, and deleting the branch (local and remote) — depends on `pr_automation` in `.codereviewrc`, off by default. `make auto-pr` (`scripts/enable-auto-pr.sh --enable`) turns it on anytime; `make setup` also offers it as a one-time y/N prompt right after a fresh clone (skipped, not failed, when stdin isn't a TTY — e.g. CI).
 
-It's a separate script from the pre-push hook on purpose. `code-review.sh` runs *before* the commits reach the remote, which is how it can block a bad push; a PR can't be opened against commits the host doesn't have yet. So `ship.sh` pushes first — running the same review gate a plain `git push` would — and only proceeds to the PR once that push actually succeeds. A REQUIRED finding blocks `ship.sh` exactly like it blocks `git push` today.
+It's a separate script from the pre-push hook on purpose. `code-review.sh` runs *before* the commits reach the remote, which is how it can block a bad push; a PR can't be opened against commits the host doesn't have yet. So `ship.sh` pushes first, and only proceeds to the PR once that push actually succeeds. A REQUIRED finding blocks `ship.sh` exactly like it blocks `git push` today.
 
 The PR title and description come from the branch's own commit log (oldest first), not a generated summary — the commits already say what changed. `ship.sh` picks `gh` or `az repos pr` based on `origin`'s remote URL (`github.com` → `gh`, anything else → `az`), self-approves the PR, then hands it to the host's auto-merge (`gh pr merge --auto` / `az repos pr update --auto-complete`) rather than merging immediately. That matters on a repo with branch protection: self-approval is best-effort and silently becomes a no-op if the host rejects a self-review, and auto-merge (instead of an immediate merge) still waits correctly for any required check or a human reviewer rather than erroring out.
 
@@ -140,14 +141,14 @@ Configuration, also in `.codereviewrc`:
 
 | Key | Values | Default |
 |-----|--------|---------|
-| `pr_automation` | `true` / `false` | `true` |
+| `pr_automation` | `true` / `false` | `false` |
 | `pr_host` | `gh`, `az` | auto-detected from `origin` |
 | `pr_merge_method` | `squash`, `merge`, `rebase` | `squash` |
 | `pr_self_approve` | `true` / `false` | `true` |
 | `pr_poll_interval` | seconds between merge-status polls | `15` |
 | `pr_poll_timeout` | seconds to wait before giving up (auto-merge stays armed) | `1800` |
 
-`.codereviewrc` is gitignored: `review_agent`/`fix_enabled` are the kind of thing a team wants applied consistently, but `pr_automation` is a personal call about whether *your* pushes get auto-merged, not something a committed file should turn on for every teammate the moment they pull. Nothing depends on the file actually existing — every key's default matches the scaffolded file's own values, so a clone with no `.codereviewrc` behaves identically. The scaffold still writes one, so there's something local to edit when a setting needs to change.
+`.codereviewrc` is gitignored: `review_agent`/`fix_enabled` are the kind of thing a team wants applied consistently, but `pr_automation` is a personal call about whether *your* pushes get auto-merged, not something a committed file should turn on for every teammate the moment they pull — it stays off until that developer runs `make auto-pr` or answers yes to the `make setup` prompt. Every other key's default matches the scaffolded file's own values, so a clone with no `.codereviewrc` behaves identically. The scaffold still writes one, so there's something local to edit when a setting needs to change.
 
 ## Installation
 

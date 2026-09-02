@@ -1,11 +1,12 @@
-.PHONY: help setup test lint check run-check review ship
+.PHONY: help setup test lint check run-check review ship auto-pr
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
 
-setup: ## One-time post-clone setup (uv sync, pre-commit)
+setup: ## One-time post-clone setup (uv sync, pre-commit, prompts to enable auto-PR)
 	uv sync
 	uv run pre-commit install
+	bash scripts/enable-auto-pr.sh --prompt
 
 test: ## Run tests
 	uv run pytest
@@ -32,6 +33,9 @@ review: ## Run the two-pass agentic code review (also runs on git push)
 
 ship: ## Push, then open/approve/auto-merge a PR and clean up the branch (see .codereviewrc)
 	bash scripts/ship.sh
+
+auto-pr: ## Enable make ship's PR automation (off by default, see .codereviewrc)
+	bash scripts/enable-auto-pr.sh --enable
 
 # deploy: ## Deploy to GCP
 # 	terraform -chdir=infra apply

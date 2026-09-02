@@ -3,7 +3,7 @@
 # Repo governance (layered on top of agent-starter-pack by python-gcp-agentic-project-skill)
 # ==============================================================================
 
-.PHONY: run-check review ship
+.PHONY: run-check review ship auto-pr
 
 run-check: ## Confirm the agent still imports cleanly (also runs on git push)
 	uv run python -c "import {{code-dir}}.agent"
@@ -13,3 +13,6 @@ review: ## Run the two-pass agentic code review (also runs on git push)
 
 ship: ## Push, then open/approve/auto-merge a PR and clean up the branch (see .codereviewrc)
 	bash scripts/ship.sh
+
+auto-pr: ## Enable make ship's PR automation (off by default, see .codereviewrc)
+	bash scripts/enable-auto-pr.sh --enable

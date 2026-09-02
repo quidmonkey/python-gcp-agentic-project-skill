@@ -42,7 +42,7 @@ fix_max_iterations=2
 # points at the findings) on stdin and must edit the working tree.
 # fix_command=my-agent --headless --write
 
-# --- PR automation (optional) -------------------------------------------------
+# --- PR automation (opt-in) ----------------------------------------------------
 # Read by scripts/ship.sh, run manually (`make ship`) once a branch is ready to
 # land — never by the pre-push hook itself: that hook runs before the commits
 # reach the remote, and a PR can't be opened against commits the host doesn't
@@ -51,10 +51,11 @@ fix_max_iterations=2
 
 # When true, ship.sh opens a PR after the push succeeds, self-approves it,
 # enables auto-merge, and on merge checks out the default branch, pulls, and
-# deletes the branch (local and remote). On by default: the review above
-# already gates quality, so landing a passing branch is meant to be hands-off.
-# Set to false to have ship.sh just push.
-pr_automation=true
+# deletes the branch (local and remote). Off by default — `make setup` asks
+# once whether to turn it on; `make auto-pr` turns it on anytime after that.
+# Set to false (or run `make auto-pr` again after editing this back) to have
+# ship.sh just push.
+pr_automation=false
 
 # CLI used to open/approve/merge the PR: gh | az. Auto-detected from
 # `git remote get-url origin` when unset (github.com -> gh, anything else ->

@@ -144,6 +144,7 @@ Notes:
 | `templates/scripts/lib/common.sh` | `scripts/lib/common.sh` | write |
 | `templates/scripts/code-review.sh` | `scripts/code-review.sh` | write |
 | `templates/scripts/ship.sh` | `scripts/ship.sh` | write |
+| `templates/scripts/enable-auto-pr.sh` | `scripts/enable-auto-pr.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/Makefile` | `Makefile` | write |
@@ -169,6 +170,7 @@ Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 | `templates/scripts/lib/common.sh` | `scripts/lib/common.sh` | write |
 | `templates/scripts/code-review.sh` | `scripts/code-review.sh` | write |
 | `templates/scripts/ship.sh` | `scripts/ship.sh` | write |
+| `templates/scripts/enable-auto-pr.sh` | `scripts/enable-auto-pr.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
@@ -180,7 +182,7 @@ Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
 mkdir -p .claude docs working scripts/lib
-chmod +x scripts/code-review.sh scripts/ship.sh scripts/docs-sync-check.sh
+chmod +x scripts/code-review.sh scripts/ship.sh scripts/enable-auto-pr.sh scripts/docs-sync-check.sh
 ```
 
 Do not create `docs/specs/`. It comes into existence when the design outgrows one file; `CLAUDE.md` carries the spec skeleton and the rule for creating it then.
@@ -262,12 +264,13 @@ If the script exits with the JSON error, report it — do not hand-edit `~/.clau
 - Design doc split: while the project is small `design.md` holds everything, and `docs/specs/` doesn't exist. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (skeleton in `CLAUDE.md`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
 - Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude, `review_model` to sonnet); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
 - Auto-fix: `fix_enabled=true` in `.codereviewrc` (default true) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked
-- Shipping: `make ship` (`scripts/ship.sh`) pushes the branch (same review gate as `git push`), then — when `pr_automation=true` in `.codereviewrc` (default) — opens a PR via `gh` or `az repos pr` (auto-detected from `origin`), self-approves it (best-effort), enables auto-merge/auto-complete, polls until it lands, then checks out the default branch, pulls, and deletes the branch. Not a git hook: it runs after `git push` succeeds, since a PR can't be opened against commits the host doesn't have yet
-- `.codereviewrc` is gitignored, not committed: review-gate settings are personal defaults baked into the scripts (an absent file behaves identically), and `pr_automation` is a per-developer call that shouldn't auto-merge a teammate's pushes just because they pulled a commit
+- Shipping: `make ship` (`scripts/ship.sh`) pushes the branch (same review gate as `git push`), then — only when `pr_automation=true` in `.codereviewrc` (off by default) — opens a PR via `gh` or `az repos pr` (auto-detected from `origin`), self-approves it (best-effort), enables auto-merge/auto-complete, polls until it lands, then checks out the default branch, pulls, and deletes the branch. Not a git hook: it runs after `git push` succeeds, since a PR can't be opened against commits the host doesn't have yet
+- Auto-PR is opt-in: `scripts/enable-auto-pr.sh` sets `pr_automation=true` in `.codereviewrc`, run either via `make auto-pr` (anytime) or `--prompt` mode, which `make setup` runs once post-clone (a y/N prompt; a no-op if stdin isn't a TTY, e.g. CI). ASP mode has no `make setup` of its own to hook — `agent-starter-pack` owns `install` — so there `make auto-pr` is the only path; say so if asked
+- `.codereviewrc` is gitignored, not committed: review-gate settings are personal defaults baked into the scripts (an absent file behaves identically), and `pr_automation` is a per-developer call that shouldn't auto-merge a teammate's pushes just because they pulled a commit — it stays off until that developer opts in themselves
 - App run check: `make run-check` — the agent runs it after every code change per `CLAUDE.md`, and a pre-push hook runs it as a backstop; ships as an import check, to be upgraded once the app has a real entry point (in ASP mode, once the actual agent entry point differs from `{{code-dir}}/agent.py`)
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `google-agents-cli` (project plugin — only if install above succeeded). Humanizing is baked into `CLAUDE.md`, no skill needed.
-- Commands, plain scaffold: `make setup` (post-clone), `make test`, `make lint`, `make check`, `make run-check`, `uv run pre-commit autoupdate`
-- Commands, ASP mode: agent-starter-pack's own `make install` (post-clone), `make playground`, `make eval`, `make deploy`, plus this skill's `make run-check`, `make review`, `make ship`, `uv run pre-commit autoupdate`
-- Team onboarding, plain scaffold: clone repo, run `make setup` — installs deps and pre-commit hooks in one step
-- Team onboarding, ASP mode: clone repo, run `make install && uv run pre-commit install` — agent-starter-pack's `install` target only syncs deps, so the pre-commit step doesn't fold into it
+- Commands, plain scaffold: `make setup` (post-clone; also prompts for auto-PR), `make test`, `make lint`, `make check`, `make run-check`, `make auto-pr`, `uv run pre-commit autoupdate`
+- Commands, ASP mode: agent-starter-pack's own `make install` (post-clone), `make playground`, `make eval`, `make deploy`, plus this skill's `make run-check`, `make review`, `make ship`, `make auto-pr`, `uv run pre-commit autoupdate`
+- Team onboarding, plain scaffold: clone repo, run `make setup` — installs deps and pre-commit hooks, and prompts to enable auto-PR, in one step
+- Team onboarding, ASP mode: clone repo, run `make install && uv run pre-commit install` — agent-starter-pack's `install` target only syncs deps, so the pre-commit step doesn't fold into it; run `make auto-pr` separately to opt in to auto-PR

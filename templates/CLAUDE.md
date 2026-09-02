@@ -104,7 +104,7 @@ If design, architecture, or public API changed, update `docs/design.md` — or t
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
 
-`make ship` (`scripts/ship.sh`) pushes the branch, then opens a PR, self-approves it, and enables auto-merge, landing it once checks and any required review clear — then checks out the default branch, pulls, and deletes the branch. It runs the same push (and the same review gate) as `git push`; it does not add a second way to bypass a failing review.
+`make ship` (`scripts/ship.sh`) pushes the branch. It runs the same push (and the same review gate) as `git push`; it does not add a second way to bypass a failing review. When `pr_automation=true` in `.codereviewrc` (off by default — `make auto-pr` turns it on) it goes further: opens a PR, self-approves it, and enables auto-merge, landing it once checks and any required review clear, then checks out the default branch, pulls, and deletes the branch.
 
 ## Testing
 

@@ -6,8 +6,11 @@ On top of the agent-starter-pack commands above (`make install`, `make test`, `m
 ```bash
 make run-check  # confirm the agent still imports cleanly (also runs on git push)
 make review     # run the code review manually (also runs on git push)
-make ship       # push, open/approve/auto-merge a PR, clean up the branch
+make ship       # push, then (if auto-PR is enabled) open/approve/auto-merge a PR
+make auto-pr    # enable make ship's PR automation (off by default)
 ```
+
+Auto-PR has no post-clone prompt in ASP mode — `make install` is agent-starter-pack's own target, not this skill's `make setup`. Run `make auto-pr` once after `make install` to turn it on; see [Shipping a branch](#shipping-a-branch).
 
 ### Code review on push
 
@@ -42,7 +45,7 @@ fix_model=opus         # model for the fix pass
 fix_max_iterations=2   # max fix -> re-review rounds before giving up
 # fix_command=...      # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
 
-pr_automation=true     # false: `make ship` just pushes and leaves the PR to you
+pr_automation=false    # true: `make ship` also opens/approves/auto-merges a PR (set via `make auto-pr`)
 # pr_host=gh           # gh | az, auto-detected from origin's remote URL
 pr_merge_method=squash # squash | merge | rebase, used once auto-merge completes
 pr_self_approve=true   # best-effort; a no-op if the host rejects self-review
@@ -64,13 +67,15 @@ Or set `enabled=false` in `.codereviewrc` to turn it off for the repo. Skipping 
 
 ## Shipping a branch
 
-`make ship` (`scripts/ship.sh`) pushes the current branch, opens a PR against the default branch, self-approves it, enables auto-merge, and once it lands, checks out the default branch, pulls, and deletes the branch (local and remote).
+`make ship` (`scripts/ship.sh`) always pushes the current branch (running the same review gate as `git push`). What happens next depends on `pr_automation` in `.codereviewrc`, off by default: with it enabled, `ship.sh` also opens a PR against the default branch, self-approves it, enables auto-merge, and once it lands, checks out the default branch, pulls, and deletes the branch (local and remote). With it disabled, `ship.sh` stops after the push and leaves the PR to you.
 
-It's a separate script from the pre-push hook: `code-review.sh` runs before the commits reach the remote, so it can't open a PR against them. `ship.sh` pushes first — running the same review gate above — and only opens the PR once that push succeeds. The PR title and description come from the branch's own commit log, not a generated summary.
+Enable it with `make auto-pr` (see above).
 
-`ship.sh` picks `gh` or `az repos pr` from `origin`'s remote URL unless `pr_host` is set. Self-approval is best-effort: on a branch that requires review from someone else, the host rejects it and auto-merge (not an immediate merge) waits for a real reviewer instead of failing. Set `pr_automation=false` to have `make ship` just push and leave the PR to you.
+It's a separate script from the pre-push hook: `code-review.sh` runs before the commits reach the remote, so it can't open a PR against them. `ship.sh` pushes first, and only opens the PR once that push succeeds. The PR title and description come from the branch's own commit log, not a generated summary.
 
-`.codereviewrc` is gitignored and personal to your machine — `pr_automation` decides whether *your* pushes get auto-merged, which shouldn't flip on for a teammate just because they pulled a commit. Every default above is baked into the scripts, so a fresh clone with no `.codereviewrc` at all behaves exactly like the file shown here; edit your local copy only to actually change something.
+`ship.sh` picks `gh` or `az repos pr` from `origin`'s remote URL unless `pr_host` is set. Self-approval is best-effort: on a branch that requires review from someone else, the host rejects it and auto-merge (not an immediate merge) waits for a real reviewer instead of failing.
+
+`.codereviewrc` is gitignored and personal to your machine — `pr_automation` decides whether *your* pushes get auto-merged, which shouldn't flip on for a teammate just because they pulled a commit, and stays off until you deliberately turn it on. Every other default above is baked into the scripts, so a fresh clone with no `.codereviewrc` at all behaves exactly like the file shown here; edit your local copy only to actually change something.
 
 ## Documentation
 
