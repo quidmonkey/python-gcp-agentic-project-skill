@@ -1,0 +1,6 @@
+
+# Added by python-gcp-agentic-project-skill (layered on agent-starter-pack)
+.ruff_cache/
+.claude/skills/
+working/
+.codereviewrc

@@ -13,6 +13,7 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
       - id: check-added-large-files
+        exclude: ^uv\.lock$
       - id: mixed-line-ending
         args: [--fix=lf]
 
@@ -27,13 +28,13 @@ repos:
     hooks:
       - id: ty
         name: ty type check
-        entry: uv run --no-sync ty check {{code-dir}}/{{package_name}}
+        entry: uv run --no-sync ty check {{lint-target}}
         language: system
         pass_filenames: false
 
       - id: bandit
         name: bandit security scan
-        entry: uv run --no-sync bandit -r {{code-dir}}/{{package_name}} -x {{code-dir}}/{{package_name}}/tests --configfile pyproject.toml
+        entry: uv run --no-sync bandit -r {{lint-target}}{{bandit-exclude-arg}} --configfile pyproject.toml
         language: system
         pass_filenames: false
 

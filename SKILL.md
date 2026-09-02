@@ -1,11 +1,13 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 2.15.0
+version: 2.16.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
-  Generates CLAUDE.md and .claude/settings.json to enforce pre-commit checks
-  during agentic development.
+  For GCP projects, optionally scaffolds with Google's agent-starter-pack (ADK/LangGraph
+  agent templates, Cloud Run/Agent Engine/GKE deployment, Terraform, CI/CD) and layers this
+  skill's tooling on top. Generates CLAUDE.md and .claude/settings.json to enforce pre-commit
+  checks during agentic development.
   Use when user says "create python project", "new python project", "init python project",
   "scaffold python project", or invokes /python-gcp-project.
 allowed-tools:
@@ -18,14 +20,38 @@ allowed-tools:
 
 # Python GCP Agentic Project Skill
 
-Scaffold a Python project with ruff, ty, bandit, pytest, pre-commit, and agent instruction files.
+Scaffold a Python project with ruff, ty, bandit, pytest, pre-commit, and agent instruction files. For GCP projects, optionally hands base scaffolding to Google's [agent-starter-pack](https://github.com/GoogleCloudPlatform/agent-starter-pack) and layers this skill's lint/pre-commit/code-review/docs tooling on top rather than replacing it.
 
-Templates: `~/.claude/skills/python-gcp-agentic-project-skill/templates/`
-Placeholders: `{{project-name}}`, `{{package_name}}`, `{{code-dir}}`, `{{test-dir}}`, `{{layout-line}}`, `{{gcp-doc-lines}}`, `{{gcp-sync-rule}}`
+Templates: `~/.claude/skills/python-gcp-agentic-project-skill/templates/` (plain scaffold), `~/.claude/skills/python-gcp-agentic-project-skill/templates/asp/` (agent-starter-pack addenda)
+Placeholders: `{{project-name}}`, `{{package_name}}`, `{{code-dir}}`, `{{test-dir}}`, `{{layout-line}}`, `{{gcp-doc-lines}}`, `{{gcp-sync-rule}}`, `{{lint-target}}`, `{{bandit-exclude-arg}}`, and (ASP mode) `{{asp-agent}}`, `{{asp-deployment-target}}`, `{{asp-depth-flag}}`
 
 ## Step 1: Gather inputs
 
 Use project name from args if provided, else ask.
+
+Ask "GCP scope?" via `AskUserQuestion` (single question, one call):
+- **Not a GCP project**: no GCP docs, no agent-starter-pack.
+- **GCP project**: plain `uv`-scaffolded project, GCP cost/infra docs included.
+- **GCP project via agent-starter-pack**: scaffold with Google's [agent-starter-pack](https://github.com/GoogleCloudPlatform/agent-starter-pack) (ADK/LangGraph agent templates, Cloud Run/Agent Engine/GKE deployment, Terraform, CI/CD), then layer this skill's lint/pre-commit/code-review/docs tooling on top.
+
+Set `{{gcp}}` = true for either GCP option, `{{asp}}` = true only for the agent-starter-pack option.
+
+### If `{{asp}}`
+
+Ask via `AskUserQuestion` (up to 3 questions, one call):
+- **Agent template** (`-a`): offer `adk` (ReAct agent via ADK — recommended default), `langgraph` (ReAct agent via LangGraph), `agentic_rag` (RAG agent, Vertex AI Search/Vector Search), `adk_a2a` (Agent-to-Agent protocol). User can pick "Other" and give any template id agent-starter-pack accepts (a local name, an `adk@`/`adk-py@` shortcut, or a remote Git URL).
+- **Deployment target** (`-d`): `agent_engine` (recommended default), `cloud_run`, `gke`, `none`.
+- **Scaffold depth**: `Prototype` (recommended for exploration — `--prototype`, no CI/CD or Terraform, fastest to iterate) or `Full` (CI/CD + Terraform via GitHub Actions — production-ready pipeline, more setup).
+
+Skip the layout question entirely — agent-starter-pack owns the directory layout.
+
+Set:
+- `{{code-dir}}`: `app` (agent-starter-pack's default agent directory)
+- `{{test-dir}}`: `tests/unit` — **not** `tests/integration` or `tests/eval`. Confirmed by dry run: agent-starter-pack's own `tests/integration/` makes live Vertex AI calls and fails with a 403 the moment there's no GCP project/credentials configured, which a fresh scaffold never has. Gating every `git push` on that would block the pre-push hook out of the box. `make test` (agent-starter-pack's own target, unchanged) still runs `tests/unit` + `tests/integration` for whoever has real credentials; only this skill's pre-push pytest hook is scoped down. `tests/eval` holds ADK evalsets, run via `make eval`, and was never in scope for either.
+- `{{lint-target}}`: `{{code-dir}}`
+- `{{bandit-exclude-arg}}`: empty string
+
+### Otherwise (plain `uv` scaffold, GCP or not)
 
 Ask layout via `AskUserQuestion`:
 - **Single package**: `uv init --package`. Code in `src/<name>/`, tests in `tests/`.
@@ -33,23 +59,42 @@ Ask layout via `AskUserQuestion`:
 
 Derive `{{package_name}}`: lowercase, hyphens → underscores.
 
-Ask "GCP project?" via `AskUserQuestion` (yes/no). This controls whether GCP cost/infra docs and the GCP doc-sync rules are included.
-
-Set variables:
+Set:
 - `{{code-dir}}`: `src` (single) or `packages` (monorepo)
 - `{{test-dir}}`: `tests` (single) or `packages` (monorepo)
 - `{{layout-line}}`: `src/{{package_name}}/` with `tests/` (single) or `packages/{{package_name}}/` with `packages/{{package_name}}/tests/` (monorepo)
-- `{{gcp-doc-lines}}`: if GCP, the two-line block below; if non-GCP, empty string (and drop the blank line that follows it).
+- `{{lint-target}}`: `{{code-dir}}/{{package_name}}`
+- `{{bandit-exclude-arg}}`: ` -x {{code-dir}}/{{package_name}}/tests`
+
+### Shared, for any GCP project (`{{gcp}}`)
+
+- `{{gcp-doc-lines}}`: the two-line block below.
   ```
   - `finops.md` — GCP cost analysis for the design
   - `infra.md` — CI pipeline, IAM accounts and roles
   ```
-- `{{gcp-sync-rule}}`: if GCP, the line below; if non-GCP, empty string (and drop the blank line that follows it).
+- `{{gcp-sync-rule}}`: the line below.
   ```
   After any change to the deployed GCP footprint — `docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, or any `*.tf` — update `docs/finops.md` so the service table and cost estimates match what is actually deployed.
   ```
 
+For a non-GCP project, both are the empty string (drop the blank line that follows each).
+
 ## Step 2: Create project
+
+**agent-starter-pack (`{{asp}}`):**
+```bash
+uvx agent-starter-pack create {{project-name}} \
+  -a {{asp-agent}} \
+  -d {{asp-deployment-target}} \
+  --agent-guidance-filename CLAUDE.md \
+  -y -s \
+  {{asp-depth-flag}}
+cd {{project-name}}
+```
+`{{asp-depth-flag}}` is `--prototype` for Prototype depth, or `--cicd-runner github_actions` for Full (this skill's own `ship.sh` assumes a `gh`/`az repos pr`-reachable host, so GitHub Actions is the consistent default; Cloud Build isn't offered as a choice here). `-s` skips agent-starter-pack's live GCP/Vertex AI auth checks — this is a scaffolding step, not a deploy step. `-y` accepts its own defaults for anything not covered by the flags above.
+
+agent-starter-pack prints its own next steps (`make install`, `make playground`, etc.) — that output is expected and is not this skill's own report.
 
 **Single:**
 ```bash
@@ -69,6 +114,12 @@ touch packages/{{package_name}}/__init__.py packages/{{package_name}}/tests/__in
 
 ## Step 3: Add dev dependencies
 
+**agent-starter-pack:** its own `pyproject.toml` already carries `pytest` (in `dependency-groups.dev`) and `ruff`/`ty` (in `project.optional-dependencies.lint`, not the dev group — our pre-commit hooks call them with `--no-sync`, so they need to be in the dev group too):
+```bash
+uv add --dev ruff ty "bandit[toml]" pre-commit
+```
+
+**Plain scaffold:**
 ```bash
 uv add --dev ruff ty "bandit[toml]" pytest pre-commit
 ```
@@ -78,8 +129,10 @@ uv add --dev ruff ty "bandit[toml]" pytest pre-commit
 Read each template from `~/.claude/skills/python-gcp-agentic-project-skill/templates/`, substitute all placeholders, write to destination.
 
 Notes:
-- `uv init` pre-creates `.gitignore` and `README.md`. To overwrite, Read the existing file first (the harness blocks overwrite-without-read), then Write.
-- `pyproject-additions.toml` is appended, so it must start with a `[table]` header. Never add a bare top-level key (e.g. `requires-python`) at its top — it would leak into the last existing table (`[dependency-groups]`) and break the parse. `uv init` already sets `requires-python` in `[project]`. Keep the `--python 3.12` flag on `uv init` — without it uv picks whatever interpreter its `python-preference = "managed"` default resolves to, which can be older than 3.12 and silently lowers both `requires-python` and the ruff `target-version` inferred from it.
+- `uv init` (plain scaffold) and `agent-starter-pack create` (ASP scaffold) both pre-create `.gitignore`, `README.md`, and `pyproject.toml`. To overwrite a file, Read it first (the harness blocks overwrite-without-read), then Write. Where the table below says **append**, use Edit/Read + append instead — never overwrite a file agent-starter-pack owns.
+- `pyproject-additions.toml` / `templates/asp/pyproject-bandit.toml` are appended, so each must start with a `[table]` header. Never add a bare top-level key (e.g. `requires-python`) at its top — it would leak into the last existing table and break the parse. Keep the `--python 3.12` flag on `uv init` (plain scaffold only) — without it uv picks whatever interpreter its `python-preference = "managed"` default resolves to, which can be older than 3.12 and silently lowers both `requires-python` and the ruff `target-version` inferred from it.
+
+**Plain scaffold (GCP or not):**
 
 | Template | Destination | Mode |
 |----------|------------|------|
@@ -102,6 +155,29 @@ Notes:
 
 Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
+**agent-starter-pack scaffold (`{{asp}}`):** agent-starter-pack already owns `pyproject.toml`, `Makefile`, `README.md`, `CLAUDE.md`, and `.gitignore` — none of those are overwritten. This skill's tooling layers on top of them:
+
+| Template | Destination | Mode |
+|----------|------------|------|
+| `templates/pre-commit-config.yaml` | `.pre-commit-config.yaml` | write — agent-starter-pack has no pre-commit config |
+| `templates/asp/pyproject-bandit.toml` | `pyproject.toml` | append — only `[tool.bandit]`; agent-starter-pack already configures `[tool.ruff]`/`[tool.ty]`/`[tool.pytest.ini_options]`, and a duplicate TOML table header breaks the parse |
+| `templates/asp/CLAUDE-addendum.md` | `CLAUDE.md` | append to the file agent-starter-pack generated (`--agent-guidance-filename CLAUDE.md` in Step 2 made this the guaranteed target) |
+| `templates/asp/README-addendum.md` | `README.md` | append |
+| `templates/asp/Makefile-addendum` | `Makefile` | append |
+| `templates/asp/gitignore-addendum` | `.gitignore` | append — only the four lines not already covered by agent-starter-pack's own `.gitignore` |
+| `templates/.codereviewrc` | `.codereviewrc` | write — gitignored, not `git add`ed |
+| `templates/scripts/lib/common.sh` | `scripts/lib/common.sh` | write |
+| `templates/scripts/code-review.sh` | `scripts/code-review.sh` | write |
+| `templates/scripts/ship.sh` | `scripts/ship.sh` | write |
+| `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
+| `templates/settings.json` | `.claude/settings.json` | write |
+| `templates/docs/design.md` | `docs/design.md` | write |
+| `templates/docs/design.mmd` | `docs/design.mmd` | write |
+| `templates/docs/finops.md` | `docs/finops.md` | write — GCP is always true in ASP mode |
+| `templates/docs/infra.md` | `docs/infra.md` | write |
+
+`templates/asp/Makefile-addendum`'s `run-check` target assumes `{{code-dir}}/agent.py` (e.g. `app/agent.py`) is the agent's entry point, matching agent-starter-pack's default layout for the built-in templates. If the chosen template or `--agent-directory` places it elsewhere, fix the target before reporting done.
+
 ```bash
 mkdir -p .claude docs working scripts/lib
 chmod +x scripts/code-review.sh scripts/ship.sh scripts/docs-sync-check.sh
@@ -120,7 +196,9 @@ claude plugin install google-agents-cli --scope project 2>/dev/null || true
 Humanizing is baked into `CLAUDE.md` directly (no `humanizer` skill needed).
 `google-agents-cli` is best-effort: the install no-ops unless its marketplace is
 already registered. Report it as installed only if the command above succeeded;
-otherwise tell the user to add the marketplace first.
+otherwise tell the user to add the marketplace first. In ASP mode, agent-starter-pack's
+own CLI output names `google-agents-cli` as its successor — installing it here is
+doubly relevant, not redundant with anything ASP already did.
 
 ## Step 6: Init git and install pre-commit hooks
 
@@ -129,6 +207,10 @@ git init
 git add .
 uv run pre-commit install
 ```
+
+`git init` on a directory `agent-starter-pack create` already initialized as a repo is a safe no-op.
+
+In ASP mode, run `uv run pre-commit run --all-files` once here and fix what it finds before reporting done — confirmed by dry run (agent-starter-pack v0.41.3, `adk` template): the `end-of-file-fixer` hook fixes `deployment_metadata.json` (expected, first-run only), and `ruff-check` fails on a pre-existing `RUF005` violation in agent-starter-pack's own generated `{{code-dir}}/agent_engine_app.py` (`register_operations`) — that file is agent-starter-pack's, not this skill's template, and `--unsafe-fixes` or a one-line manual edit clears it. Different agent-starter-pack templates or versions may generate different code; run the hooks and fix whatever they actually report rather than assuming this exact finding.
 
 `default_install_hook_types` in `.pre-commit-config.yaml` makes this install both the pre-commit and pre-push stages — pre-push carries the pytest and code-review hooks.
 
@@ -172,8 +254,8 @@ If the script exits with the JSON error, report it — do not hand-edit `~/.clau
 ## Step 8: Report
 
 - Project: `./{{project-name}}/`
-- Tools: ruff, ty, bandit, pytest, pre-commit
-- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes, denies reads of `.env` variants that hold secrets and of `secrets/`). Every `ask` rule names a mutating subcommand rather than a bare binary — a wildcard like `Bash(gcloud *)` or `Bash(docker *)` would silently cancel the read-only allowlist below it, because permission rules merge across all settings files and `ask` outranks `allow`
+- Tools: ruff, ty, bandit, pytest, pre-commit (in ASP mode, layered on the agent-starter-pack stack: ADK/LangGraph, `uv`, ADK eval — say so explicitly, and name the agent template and deployment target chosen)
+- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes, denies reads of `.env` variants that hold secrets and of `secrets/`). Every `ask` rule names a mutating subcommand rather than a bare binary — a wildcard like `Bash(gcloud *)` or `Bash(docker *)` would silently cancel the read-only allowlist below it, because permission rules merge across all settings files and `ask` outranks `allow`. In ASP mode, `CLAUDE.md` is agent-starter-pack's own file with this skill's governance section appended — say both parts are present, not that `CLAUDE.md` was generated fresh
 - Workspace trust: recorded in `~/.claude.json` (`hasTrustDialogAccepted`), so the allowlist is live on first run with no trust dialog. Say so explicitly — the user is entitled to know a scaffold granted its own pre-approvals
 - Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`; a changed spec's `docs/specs/<flow>-diagram.mmd` is stale or the spec isn't linked from the Flows index in `docs/design.md`; `docs/design.md` is over 400 lines with no per-flow specs yet; or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
@@ -182,8 +264,10 @@ If the script exits with the JSON error, report it — do not hand-edit `~/.clau
 - Auto-fix: `fix_enabled=true` in `.codereviewrc` (default true) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked
 - Shipping: `make ship` (`scripts/ship.sh`) pushes the branch (same review gate as `git push`), then — when `pr_automation=true` in `.codereviewrc` (default) — opens a PR via `gh` or `az repos pr` (auto-detected from `origin`), self-approves it (best-effort), enables auto-merge/auto-complete, polls until it lands, then checks out the default branch, pulls, and deletes the branch. Not a git hook: it runs after `git push` succeeds, since a PR can't be opened against commits the host doesn't have yet
 - `.codereviewrc` is gitignored, not committed: review-gate settings are personal defaults baked into the scripts (an absent file behaves identically), and `pr_automation` is a per-developer call that shouldn't auto-merge a teammate's pushes just because they pulled a commit
-- App run check: `make run-check` — the agent runs it after every code change per `CLAUDE.md`, and a pre-push hook runs it as a backstop; ships as an import check, to be upgraded once the app has a real entry point
+- App run check: `make run-check` — the agent runs it after every code change per `CLAUDE.md`, and a pre-push hook runs it as a backstop; ships as an import check, to be upgraded once the app has a real entry point (in ASP mode, once the actual agent entry point differs from `{{code-dir}}/agent.py`)
 - Scratch: `working/` (gitignored — dirty/dev files, never committed)
 - Skills: `google-agents-cli` (project plugin — only if install above succeeded). Humanizing is baked into `CLAUDE.md`, no skill needed.
-- Commands: `make setup` (post-clone), `make test`, `make lint`, `make check`, `make run-check`, `uv run pre-commit autoupdate`
-- Team onboarding: clone repo, run `make setup` — installs deps and pre-commit hooks
+- Commands, plain scaffold: `make setup` (post-clone), `make test`, `make lint`, `make check`, `make run-check`, `uv run pre-commit autoupdate`
+- Commands, ASP mode: agent-starter-pack's own `make install` (post-clone), `make playground`, `make eval`, `make deploy`, plus this skill's `make run-check`, `make review`, `make ship`, `uv run pre-commit autoupdate`
+- Team onboarding, plain scaffold: clone repo, run `make setup` — installs deps and pre-commit hooks in one step
+- Team onboarding, ASP mode: clone repo, run `make install && uv run pre-commit install` — agent-starter-pack's `install` target only syncs deps, so the pre-commit step doesn't fold into it
