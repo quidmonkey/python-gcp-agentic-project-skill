@@ -55,7 +55,9 @@ If design, architecture, or public API changed, update `docs/design.md` — or t
 
 ## Code review gate
 
-`git push` triggers a two-pass agentic review (pre-push hook, `scripts/code-review.sh`): pass 1 is a general review (DRY, YAGNI, library leverage, missing tests, security), pass 2 checks the change against the intent in `docs/`. Any REQUIRED finding blocks the push. The hook prints both passes' findings and writes the full report to `working/code-review-report.md`; fix every REQUIRED finding at root cause, commit, and push again — only new commits get re-reviewed. Config lives in `.codereviewrc` (gitignored, personal — not shared team policy).
+`git push` triggers a two-pass agentic review (pre-push hook, `scripts/code-review.sh`): pass 1 is a general review (DRY, YAGNI, library leverage, missing tests, security), pass 2 checks the change against the intent in `docs/`. Any REQUIRED finding blocks the push. The hook prints both passes' findings and writes the full report to `working/code-review-report.md`. Config lives in `.codereviewrc` (gitignored, personal — not shared team policy).
+
+`fix_enabled` defaults to `true`: a failed review hands its REQUIRED findings to a fix agent that edits the working tree and re-reviews in a loop (`fix_max_iterations`, default 2). The fix is always left uncommitted — the hook itself never commits or pushes, so nothing an agent wrote reaches the remote unseen. Run via a plain `git push`, that's the end of it: fix every REQUIRED finding at root cause yourself (or review the auto-fix's diff), commit, and push again — only new commits get re-reviewed. Run via `make ship` (`scripts/ship.sh`), and if the fix loop resolved every REQUIRED finding, `ship.sh` shows the diff and, only on your explicit `y` confirmation, commits it and pushes again — up to `ship_fix_retries` times (default 1). Declining, or a non-interactive shell, leaves it uncommitted exactly like the plain-`git push` case.
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
 

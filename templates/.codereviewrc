@@ -42,6 +42,15 @@ fix_max_iterations=2
 # points at the findings) on stdin and must edit the working tree.
 # fix_command=my-agent --headless --write
 
+# Max times `make ship` (scripts/ship.sh) will, on your confirmation, commit an
+# auto-fix and push again in one run (positive integer). By the time ship.sh
+# sees a fix ready to commit, the fix_max_iterations loop above has already
+# converged it to a passing working tree, so more than one retry here is only
+# ever needed if the fresh commit's honest re-review turns up something new.
+# A plain `git push` never commits or retries on its own either way — that
+# only happens through `make ship`.
+ship_fix_retries=1
+
 # --- PR automation (opt-in) ----------------------------------------------------
 # Read by scripts/ship.sh, run manually (`make ship`) once a branch is ready to
 # land — never by the pre-push hook itself: that hook runs before the commits

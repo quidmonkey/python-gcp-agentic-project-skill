@@ -1,6 +1,15 @@
 # Shared helpers for scripts/code-review.sh and scripts/ship.sh. Sourced, not
 # executed — no shebang, no set -u here (each caller sets its own options).
 
+# code-review.sh's fix/re-review loop touches this file instead of just
+# exiting when it resolves every REQUIRED finding — the fixes are still
+# uncommitted (fix_enabled never commits or pushes on its own), but ship.sh
+# looks for this file right after a blocked `git push` to know whether it's
+# looking at an unfixable failure or a fix sitting in the working tree ready
+# to be reviewed and committed. Gitignored (lives under working/), like the
+# report.
+autofix_marker="working/autofix-pending.marker"
+
 # rc_get <key> [rc-file] — reads key=value from an rc file (default
 # .codereviewrc), one per line. Strips inline comments (whitespace then #) and
 # surrounding whitespace, so a line copied with its trailing comment parses.

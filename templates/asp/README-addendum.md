@@ -19,7 +19,7 @@ Auto-PR has no post-clone prompt in ASP mode — `make install` is agent-starter
 1. General review: DRY, YAGNI, use of existing libraries over hand-rolled code, missing tests, best practices, security.
 2. Spec conformance: checks the change against the design documents in `docs/`.
 
-Each pass reports findings as REQUIRED or SUGGESTED. Any REQUIRED finding blocks the push, and the full report lands in `working/code-review-report.md`. Fix the REQUIRED findings, commit, and push again.
+Each pass reports findings as REQUIRED or SUGGESTED. Any REQUIRED finding blocks the push, and the full report lands in `working/code-review-report.md`. Fix the REQUIRED findings, commit, and push again — or see [Auto-fix](#auto-fix) below.
 
 Reviews are incremental. After a passing review, the reviewed commit is recorded in `.git/code-review-ledger`, and the next push only reviews commits added since. A branch that hasn't changed is never re-reviewed.
 
@@ -27,7 +27,7 @@ Reviews are incremental. After a passing review, the reviewed commit is recorded
 
 Set `fix_enabled=true` to have a failed review hand its REQUIRED findings to a fix agent. Both passes' findings go to a single fix agent — coupled fixes and shared root causes need one coherent pass, not one agent per finding. The agent edits the working tree to resolve the findings and prints a fix summary (also appended to the report). SUGGESTED findings are left alone.
 
-After the fix pass the review runs again over the working tree, and fix -> re-review repeats until the tree passes or `fix_max_iterations` is hit. The fixes are always left uncommitted and the push always stays blocked, even once the working tree passes — the state that passed is uncommitted, not a commit, so it can't be recorded or shipped. Review the diff, commit the fixes, and push again; the committed fixes get one honest re-review and the pass is recorded then.
+After the fix pass the review runs again over the working tree, and fix -> re-review repeats until the tree passes or `fix_max_iterations` is hit. The fixes are always left uncommitted and the push always stays blocked, even once the working tree passes — the state that passed is uncommitted, not a commit, so it can't be recorded or shipped; the hook itself never commits or pushes on its own. A plain `git push` leaves it there: review the diff, commit the fixes, and push again — the committed fixes get one honest re-review and the pass is recorded then. `make ship` goes one step further; see [Shipping a branch](#shipping-a-branch).
 
 ### Configuration
 
@@ -51,6 +51,8 @@ pr_merge_method=squash # squash | merge | rebase, used once auto-merge completes
 pr_self_approve=true   # best-effort; a no-op if the host rejects self-review
 pr_poll_interval=15    # seconds between polls while waiting for auto-merge
 pr_poll_timeout=1800   # give up waiting after this many seconds (auto-merge stays armed)
+
+ship_fix_retries=1     # max times `make ship` commits an auto-fix and pushes again, on your confirmation
 ```
 
 The models are pinned rather than inherited from the `claude` CLI default, so the gate's cost doesn't move when that default changes. One blocked push with `fix_enabled=true` runs up to 6 review passes and 2 fix passes.
@@ -72,6 +74,8 @@ Or set `enabled=false` in `.codereviewrc` to turn it off for the repo. Skipping 
 Enable it with `make auto-pr` (see above).
 
 It's a separate script from the pre-push hook: `code-review.sh` runs before the commits reach the remote, so it can't open a PR against them. `ship.sh` pushes first, and only opens the PR once that push succeeds. The PR title and description come from the branch's own commit log, not a generated summary.
+
+A REQUIRED finding blocks `ship.sh` exactly like it blocks `git push` — with one difference: if `fix_enabled`'s loop (see [Auto-fix](#auto-fix)) resolved every REQUIRED finding, the fix is still uncommitted, and `ship.sh` shows you that diff and asks `Commit these fixes and push again? [y/N]`. Only on `y` does it commit and retry the push, up to `ship_fix_retries` times; declining, or running non-interactively, leaves the fix uncommitted exactly like a plain `git push` would.
 
 `ship.sh` picks `gh` or `az repos pr` from `origin`'s remote URL unless `pr_host` is set. Self-approval is best-effort: on a branch that requires review from someone else, the host rejects it and auto-merge (not an immediate merge) waits for a real reviewer instead of failing.
 

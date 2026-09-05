@@ -23,7 +23,10 @@
 # approves and auto-merges it, then checks out and cleans up the branch. It's
 # a separate script, not another stage of this hook: pre-push runs before the
 # commits reach the remote, and a PR can't be opened against commits the host
-# doesn't have yet.
+# doesn't have yet. The one exception: if the fix loop below resolves every
+# REQUIRED finding, this hook still blocks the push (see $autofix_marker in
+# lib/common.sh) but ship.sh offers, with a confirmation, to commit that fix
+# and push again — see ship_fix_retries in .codereviewrc.
 set -u
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
@@ -226,6 +229,9 @@ fi
 # --- review passes -----------------------------------------------------------
 
 mkdir -p working
+# Cleared unconditionally so a stale marker from an earlier, unrelated blocked
+# push can never be mistaken for this run's outcome — see common.sh.
+rm -f "$autofix_marker"
 {
     echo "# Code review report"
     echo
@@ -494,8 +500,10 @@ while :; do
         echo ""
         echo "Auto-fix resolved all REQUIRED findings after $iteration iteration(s)."
         echo "The fixes are in the working tree, uncommitted — this push is still blocked."
-        echo "Review the diff, commit the fixes, and push again."
+        echo "Review the diff, commit the fixes, and push again — 'make ship' will offer"
+        echo "to do that for you, with a confirmation, if this push came from make ship."
         echo "Report: $report"
+        touch "$autofix_marker"
         exit 1
     fi
 
