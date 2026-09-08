@@ -108,6 +108,8 @@ Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SK
 
 `make ship` (`scripts/ship.sh`) pushes the branch. It runs the same push (and the same review gate) as `git push`; it does not add a second way to bypass a failing review. When `pr_automation=true` in `.codereviewrc` (off by default — `make auto-pr` turns it on) it goes further: opens a PR, self-approves it, and enables auto-merge, landing it once checks and any required review clear, then checks out the default branch, pulls, and deletes the branch.
 
+With `pr_automation=true`, `ship.sh` checks the relevant CLI (`gh` or `az`) is installed and logged in before pushing anything — missing either prints a friendly message and exits without touching the branch.
+
 ## Testing
 
 - Add tests for critical user flows or core business logic (e.g. `utils.py` files)

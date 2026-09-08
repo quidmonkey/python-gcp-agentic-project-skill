@@ -79,6 +79,8 @@ A REQUIRED finding blocks `ship.sh` exactly like it blocks `git push` — with o
 
 `ship.sh` picks `gh` or `az repos pr` from `origin`'s remote URL unless `pr_host` is set. Self-approval is best-effort: on a branch that requires review from someone else, the host rejects it and auto-merge (not an immediate merge) waits for a real reviewer instead of failing.
 
+Before pushing anything, `ship.sh` checks that CLI is installed and logged in. Either one missing prints a friendly message (install it, or run `gh auth login` / `az login`) and exits without pushing.
+
 `.codereviewrc` is gitignored and personal to your machine — `pr_automation` decides whether *your* pushes get auto-merged, which shouldn't flip on for a teammate just because they pulled a commit, and stays off until you deliberately turn it on. Every other default above is baked into the scripts, so a fresh clone with no `.codereviewrc` at all behaves exactly like the file shown here; edit your local copy only to actually change something.
 
 ## Documentation
