@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Two-pass agentic code review, run by the pre-push hook.
-#   Pass 1: general review — DRY, YAGNI, library leverage, missing tests,
-#           best practices, security, fit with the codebase.
+#   Pass 1: general review — correctness, security, missing tests, DRY,
+#           YAGNI, library leverage, fit with the codebase.
 #   Pass 2: spec conformance against the documents in docs/.
 # The passes are independent and run in parallel.
 #
@@ -10,13 +10,14 @@
 # The full report is written to working/code-review-report.md (gitignored).
 #
 # fix_enabled defaults to true: a failed review hands its REQUIRED findings
-# (both passes combined) to a single fix agent that edits the working tree to
-# resolve them, then re-reviews and fixes again in a loop (fix_max_iterations
+# (both passes combined) to a single fix agent that fixes or disputes each one,
+# then a verification pass checks the fix, in a loop (fix_max_iterations
 # rounds). Fixes are left uncommitted for review; the push stays blocked either
 # way — a passing working tree isn't a passing commit yet.
 #
-# Config: .codereviewrc (key=value) — review_agent, review_model, enabled,
-#         command, fix_enabled, fix_agent, fix_model, fix_command.
+# Config: .codereviewrc (key=value) — review_agent, review_model,
+#         review_effort, review_spec_model, enabled, command, fix_enabled,
+#         fix_agent, fix_model, fix_command, agent_timeout.
 # Skip:   SKIP_CODE_REVIEW=true git push, or enabled=false in .codereviewrc.
 #
 # After a push succeeds, `make ship` (scripts/ship.sh) opens a PR, self-
@@ -47,27 +48,39 @@ esac
 
 review_agent=$(rc_get review_agent)
 review_agent=${review_agent:-claude}
-# Pinned so the gate's cost doesn't move when the CLI's default model changes:
-# a blocked push with auto-fix on can run up to 6 review passes.
+# Set explicitly rather than inheriting the CLI's default model. Aliases
+# (opus, sonnet) still move to each new release; a full model ID pins exactly.
+# Pass 1 hunts for bugs nobody has named yet, the hardest job in the gate, so
+# it gets the strongest model and a higher effort; a missed bug is invisible,
+# and a false REQUIRED costs a fix and a verification round.
 review_model=$(rc_get review_model)
-review_model=${review_model:-sonnet}
+review_model=${review_model:-opus}
+review_effort=$(rc_get review_effort)
+review_effort=${review_effort:-high}
+# Pass 2 and fix verification compare code against a stated doc or finding.
+review_spec_model=$(rc_get review_spec_model)
+review_spec_model=${review_spec_model:-sonnet}
 enabled=$(rc_get enabled)
 enabled=${enabled:-true}
 custom_cmd=$(rc_get command)
 
 # Auto-fix: after a failed review, hand the REQUIRED findings to a fix agent
 # that edits the working tree. On by default so a push keeps looping fix ->
-# re-review until it passes; fixes are always left uncommitted.
+# verify until nothing is open; fixes are always left uncommitted.
 fix_enabled=$(rc_get fix_enabled)
 fix_enabled=${fix_enabled:-true}
 fix_agent=$(rc_get fix_agent)
 fix_agent=${fix_agent:-claude}
-# The fixer writes code, so it gets the stronger default of the two.
+# The fixer works from findings that already name the file, the failure, and
+# the change needed, and a verification pass checks its work.
 fix_model=$(rc_get fix_model)
-fix_model=${fix_model:-opus}
+fix_model=${fix_model:-sonnet}
 fix_cmd=$(rc_get fix_command)
 fix_max_iterations=$(rc_get fix_max_iterations)
 fix_max_iterations=${fix_max_iterations:-2}
+# Seconds any one agent call may run before it's killed and counted as failed.
+agent_timeout=$(rc_get agent_timeout)
+agent_timeout=${agent_timeout:-900}
 
 if [ "$enabled" = "false" ]; then
     echo "Code review disabled in $rc_file — skipping."
@@ -89,6 +102,21 @@ case "$review_agent" in
         ;;
     *)
         echo "ERROR: unknown review_agent '$review_agent' in $rc_file (claude | custom) — blocking push." >&2
+        exit 1
+        ;;
+esac
+
+case "$agent_timeout" in
+    '' | *[!0-9]* | 0)
+        echo "ERROR: agent_timeout must be a positive integer (seconds) in $rc_file — blocking push." >&2
+        exit 1
+        ;;
+esac
+
+case "$review_effort" in
+    low | medium | high | xhigh | max | default) ;;
+    *)
+        echo "ERROR: unknown review_effort '$review_effort' in $rc_file (low | medium | high | xhigh | max | default) — blocking push." >&2
         exit 1
         ;;
 esac
@@ -127,19 +155,79 @@ if [ "$review_agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
     exit 0
 fi
 
-# run_review_agent reads the prompt as $1 and prints the review to stdout; the
-# review must end with "VERDICT: PASS" or "VERDICT: FAIL" as its final line. A
-# custom command receives the prompt on stdin instead.
-# git status is allowed: the re-review prompt needs it to see untracked files
+# run_review_agent <prompt> <model> [effort] prints the review to stdout; the
+# review must end with "VERDICT: PASS" or "VERDICT: FAIL" as its final line. An
+# effort of "default" or none leaves the CLI's own. A custom command receives
+# the prompt on stdin and ignores model and effort.
+# git status is allowed: the verification prompt needs it to see untracked files
 # the fixer added, and a headless -p run has no prompt to approve it with.
+#
+# Both agents are sandboxed the same way (claude_sandbox_flags):
+#   --setting-sources user  keeps .claude/settings.json out: its Stop hooks would
+#                           run pre-commit and the docs gate inside every pass,
+#                           and its auto mode + allow rules would widen the tools.
+#   --tools                 limits which built-in tools exist at all;
+#                           --allowed-tools only pre-approves.
+#   --permission-mode dontAsk  denies anything --allowed-tools doesn't cover.
+# The prompt is an argument, so stdin is closed: otherwise -p waits on it.
+claude_sandbox_flags=(--setting-sources user --permission-mode dontAsk)
+
+# with_timeout <seconds> <cmd...> runs cmd and kills it after <seconds>,
+# returning 124 like coreutils timeout, which macOS doesn't ship. A hung agent
+# would otherwise block git push forever; a timed-out pass fails closed.
+with_timeout() {
+    local secs=$1 pid watchdog status=0 flag
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$secs" "$@"
+        return
+    fi
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$secs" "$@"
+        return
+    fi
+    flag=$(mktemp)
+    rm -f "$flag"
+    # <&0: a background job's stdin is otherwise /dev/null, and custom agents
+    # read their prompt from stdin.
+    "$@" <&0 &
+    pid=$!
+    # Polls rather than one long sleep, so the watchdog exits within a second
+    # of the command finishing instead of lingering for the full timeout.
+    (
+        elapsed=0
+        while kill -0 "$pid" 2>/dev/null; do
+            if [ "$elapsed" -ge "$secs" ]; then
+                touch "$flag"
+                kill "$pid" 2>/dev/null
+                exit 0
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+    ) &
+    watchdog=$!
+    wait "$pid" 2>/dev/null || status=$?
+    wait "$watchdog" 2>/dev/null
+    if [ -e "$flag" ]; then
+        rm -f "$flag"
+        return 124
+    fi
+    return "$status"
+}
+
 run_review_agent() {
+    local effort_flags=()
+    [ -n "${3:-}" ] && [ "$3" != default ] && effort_flags=(--effort "$3")
     case "$review_agent" in
         claude)
-            claude -p "$1" --model "$review_model" \
-                --allowed-tools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
+            # ${a[@]+...}: bash 3.2 treats an empty array as unbound under set -u.
+            with_timeout "$agent_timeout" claude -p "$1" --model "$2" ${effort_flags[@]+"${effort_flags[@]}"} "${claude_sandbox_flags[@]}" \
+                --tools "Read,Grep,Glob,Bash" \
+                --allowed-tools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)" < /dev/null
             ;;
         custom)
-            printf '%s\n' "$1" | sh -c "$custom_cmd"
+            printf '%s\n' "$1" | with_timeout "$agent_timeout" sh -c "$custom_cmd"
             ;;
     esac
 }
@@ -150,11 +238,12 @@ run_review_agent() {
 run_fix_agent() {
     case "$fix_agent" in
         claude)
-            claude -p "$1" --model "$fix_model" \
-                --allowed-tools "Read,Edit,Write,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(uv run pytest:*),Bash(uv run pre-commit:*),Bash(make run-check:*)"
+            with_timeout "$agent_timeout" claude -p "$1" --model "$fix_model" "${claude_sandbox_flags[@]}" \
+                --tools "Read,Edit,Write,Grep,Glob,Bash" \
+                --allowed-tools "Read,Edit,Write,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(uv run pytest:*),Bash(uv run pre-commit:*),Bash(make run-check:*)" < /dev/null
             ;;
         custom)
-            printf '%s\n' "$1" | sh -c "$fix_cmd"
+            printf '%s\n' "$1" | with_timeout "$agent_timeout" sh -c "$fix_cmd"
             ;;
     esac
 }
@@ -238,6 +327,7 @@ rm -f "$autofix_marker"
     echo "- Branch: \`$branch\`"
     echo "- Range: \`$range\`"
     echo "- Review agent: \`$review_agent\`"
+    [ "$review_agent" = "claude" ] && echo "- Models: pass 1 \`$review_model\` (effort \`$review_effort\`), pass 2 and verification \`$review_spec_model\`, fix \`$fix_model\`"
     [ "$fix_enabled" = "true" ] && echo "- Fix agent: \`$fix_agent\`"
     echo "- Date: $(date '+%Y-%m-%d %H:%M:%S')"
 } > "$report"
@@ -256,6 +346,10 @@ finish_pass() {
         echo
         echo "$output"
     } >> "$report"
+    if [ "$status" -eq 124 ]; then
+        echo "Agent timed out after ${agent_timeout}s (agent_timeout) during $title — see $report" >&2
+        return 1
+    fi
     if [ "$status" -ne 0 ]; then
         echo "Agent failed (exit $status) during $title — see $report" >&2
         return 1
@@ -281,24 +375,46 @@ show_pass() {
     fi
 }
 
-# The most recent review's combined findings, refreshed by every run_review call
-# and consumed by apply_fixes. Kept in one stable file so the fixer always sees
-# the latest findings, not the whole accumulated report.
-findings_file=$(mktemp)
-trap 'rm -f "$findings_file"' EXIT
+# The most recent review's or verification's open findings, and the fixer's
+# latest summary. Stable files under working/ (gitignored) rather than temp
+# files: the agents read them, and a path inside the project needs no extra
+# directory access in a headless run.
+findings_file="working/code-review-findings.md"
+fix_summary_file="working/code-review-fix-summary.md"
 
-# run_review runs both passes over a given scope, prints and reports the outcome,
-# and refreshes $findings_file. Called once for the initial review and again per
-# fix iteration.
-#   $1 — the argument to `git diff` naming the scope (e.g. "A..B" or "A")
-#   $2 — a one-line human description of that scope
-#   $3 — a label suffix for section titles and console lines (may be empty)
-#   $4 — extra prompt line(s) after the diff command (may be empty)
+# The REQUIRED bar for code findings, shared by pass 1 and the fix verification
+# so a fix is judged by the same standard as the code it fixes.
+read -r -d '' required_bar <<'EOF' || true
+REQUIRED is limited to:
+- a correctness bug
+- a security vulnerability
+- data loss or corruption
+- a critical flow or core logic left untested, per CLAUDE.md
+
+Every REQUIRED finding must state a concrete failure scenario: the input or
+state, and the wrong result it produces (for a missing test, the untested flow
+and what could regress unnoticed). A finding with no concrete scenario is
+SUGGESTED.
+EOF
+
+# Closing instruction for every review-agent prompt; finish_pass enforces it.
+read -r -d '' verdict_rule <<'EOF' || true
+End with your verdict, as plain text with no bold, backticks, or other
+formatting. The very last line of your output must be exactly VERDICT: PASS if
+there are no REQUIRED or OPEN findings, otherwise exactly VERDICT: FAIL. Write
+nothing after it — no summary sentence, no closing remark. A verdict placed
+anywhere but the last line, or wrapped in formatting, is read as FAIL and
+blocks the push.
+EOF
+
+# run_review runs both passes over the committed range, prints and reports the
+# outcome, and writes $findings_file.
+#   $1 — the git range to review (e.g. "A..B")
 # The passes are independent (each only reads the diff and repo files), so run
 # them concurrently and append their report sections in order. Returns 0 only if
 # both passes pass.
 run_review() {
-    local diff_arg=$1 scope_desc=$2 label=$3 extra=$4
+    local range=$1
     local p1 p2 o1 o2 s1 s2 ok1 ok2 pid1 pid2
 
     # read -d '' (not $(cat <<EOF)): bash 3.2 mis-parses quotes inside heredocs
@@ -306,42 +422,40 @@ run_review() {
     read -r -d '' p1 <<EOF || true
 You are performing pass 1 of 2 of a pre-push code review for this repository.
 
-Scope: $scope_desc. Start with:
-    git diff $diff_arg
-$extra
+Scope: the changes in git range $range. Start with:
+    git diff $range
 Read surrounding source files as needed for context, and read CLAUDE.md for
 this project's coding and testing guidelines.
 
-Review the changes for:
+Review the changes for, in priority order:
+- Correctness: logic errors, wrong conditions or boundaries, unhandled None or
+  empty inputs, broken error handling, race conditions, callers the change breaks
+- Security (injection, secrets in code, unsafe deserialization, path traversal, etc.)
+- Missing tests: gaps per the testing guidance in CLAUDE.md (critical flows and core logic need tests; handlers and unexpected paths do not)
 - DRY: duplicated logic that should be extracted or should reuse an existing function
 - YAGNI: speculative abstractions, unused flexibility, code with no current need
 - Library leverage: hand-rolled code where the stdlib or an already-installed dependency does the job
-- Missing tests: gaps per the testing guidance in CLAUDE.md (critical flows and core logic need tests; handlers and unexpected paths do not)
-- General Python best practices
-- Security best practices (injection, secrets in code, unsafe deserialization, path traversal, etc.)
 - Whether the change makes sense in the context of the codebase
 
-Report every finding as a markdown bullet:
-- **REQUIRED** or **SUGGESTED** — \`file:line\` — what is wrong and what change is needed
+Style and formatting are out of scope: ruff, ty, and bandit already gate them.
 
-Use REQUIRED only for findings that must be fixed before this code merges.
-Use SUGGESTED for improvements the code could reasonably ship without.
+Report every finding as a markdown bullet:
+- **REQUIRED** or **SUGGESTED** — \`file:line\` — what is wrong, the failure scenario (REQUIRED only), and what change is needed
+
+$required_bar
+DRY, YAGNI, library-leverage, and fit findings are SUGGESTED unless they also
+cause one of the failures above.
 If there are no findings, say so.
 
-End with your verdict, as plain text with no bold, backticks, or other
-formatting. The very last line of your output must be exactly VERDICT: PASS if
-there are no REQUIRED findings, otherwise exactly VERDICT: FAIL. Write nothing
-after it — no summary sentence, no closing remark. A verdict placed anywhere but
-the last line, or wrapped in formatting, is read as FAIL and blocks the push.
+$verdict_rule
 EOF
 
     read -r -d '' p2 <<EOF || true
 You are performing pass 2 of 2 of a pre-push code review for this repository:
 spec conformance.
 
-Scope: $scope_desc. Start with:
-    git diff $diff_arg
-$extra
+Scope: the changes in git range $range. Start with:
+    git diff $range
 Then read docs/design.md. If docs/specs/ holds per-flow specs, read the ones
 covering the flows this change touches (design.md's Flows index maps them);
 each is the source of truth for its own flow. Read any other document in docs/
@@ -360,23 +474,23 @@ from documented intent count.
 Report every finding as a markdown bullet:
 - **REQUIRED** or **SUGGESTED** — \`file:line\` (or doc section) — the spec statement, the deviation, and what change is needed
 
+REQUIRED is limited to code that directly contradicts a documented statement,
+or a design, architecture, or public API change with no matching doc update.
+Quote the statement. Anything weaker, or resting on your reading of intent
+rather than on what the doc says, is SUGGESTED.
 If there are no findings, say so.
 
-End with your verdict, as plain text with no bold, backticks, or other
-formatting. The very last line of your output must be exactly VERDICT: PASS if
-there are no REQUIRED findings, otherwise exactly VERDICT: FAIL. Write nothing
-after it — no summary sentence, no closing remark. A verdict placed anywhere but
-the last line, or wrapped in formatting, is read as FAIL and blocks the push.
+$verdict_rule
 EOF
 
     o1=$(mktemp)
     o2=$(mktemp)
     echo ""
-    echo "Running pass 1 (general review) and pass 2 (spec conformance) in parallel$label"
+    echo "Running pass 1 (general review) and pass 2 (spec conformance) in parallel"
     echo "(this can take a few minutes)..."
-    run_review_agent "$p1" > "$o1" 2>&1 &
+    run_review_agent "$p1" "$review_model" "$review_effort" > "$o1" 2>&1 &
     pid1=$!
-    run_review_agent "$p2" > "$o2" 2>&1 &
+    run_review_agent "$p2" "$review_spec_model" > "$o2" 2>&1 &
     pid2=$!
 
     s1=0
@@ -386,25 +500,27 @@ EOF
 
     ok1=0
     ok2=0
-    finish_pass "Pass 1: general review$label" "$o1" "$s1" && ok1=1
-    finish_pass "Pass 2: spec conformance$label" "$o2" "$s2" && ok2=1
-    show_pass "Pass 1: general review$label" "$o1" "$ok1"
-    show_pass "Pass 2: spec conformance$label" "$o2" "$ok2"
+    finish_pass "Pass 1: general review" "$o1" "$s1" && ok1=1
+    finish_pass "Pass 2: spec conformance" "$o2" "$s2" && ok2=1
+    show_pass "Pass 1: general review" "$o1" "$ok1"
+    show_pass "Pass 2: spec conformance" "$o2" "$ok2"
 
     { cat "$o1"; echo; cat "$o2"; } > "$findings_file"
     rm -f "$o1" "$o2"
     [ "$ok1" = 1 ] && [ "$ok2" = 1 ]
 }
 
-# apply_fixes hands the most recent review's REQUIRED findings to a single fix
-# agent (both passes combined — coupled fixes and shared root causes need one
-# coherent pass, not one agent per finding). The agent edits the working tree
-# and leaves the changes uncommitted. The fixer's summary is appended to the
-# report and printed to the terminal, capped like the review passes so it can't
-# overflow and get truncated. $1 is a label suffix for the section/console line.
-# Returns non-zero if the fixer could not run, so the loop can stop.
+# apply_fixes hands the open findings in $findings_file to a single fix agent
+# (both passes combined — coupled fixes and shared root causes need one
+# coherent pass, not one agent per finding). The agent fixes each finding or
+# disputes it with evidence, edits the working tree, and leaves the changes
+# uncommitted. Its summary goes to $fix_summary_file for the verifier, is
+# appended to the report, and is printed to the terminal, capped like the
+# review passes so it can't overflow and get truncated. $1 is a label suffix for
+# the section/console line. Returns non-zero if the fixer could not run, so the
+# loop can stop.
 apply_fixes() {
-    local label=$1 fix_prompt fix_out
+    local label=$1 fix_prompt status=0
     if [ "$fix_agent" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
         echo "WARNING: 'claude' not found — cannot auto-fix. Fix REQUIRED findings manually." >&2
         return 1
@@ -413,54 +529,116 @@ apply_fixes() {
     read -r -d '' fix_prompt <<EOF || true
 You are the fix pass of a pre-push code review for this repository.
 
-A code review of your changes failed. Read the findings in:
+A code review of these changes failed. Read the findings in:
     $findings_file
 and read CLAUDE.md for this project's coding and testing guidelines.
 
-Apply code fixes for every finding marked REQUIRED. Ignore SUGGESTED findings.
+Handle every finding marked REQUIRED or OPEN. Ignore SUGGESTED, RESOLVED, and
+DISPUTE ACCEPTED findings.
+
+Check each finding against the code before acting on it. Then either:
+- fix it, or
+- dispute it, when it is wrong: its failure scenario can't happen, or the
+  behavior it flags is what docs/ specifies. A dispute needs evidence another
+  reviewer can check: a file:line, a quoted doc statement, or test output.
+  Change no code for a disputed finding. Don't dispute a finding just because
+  the fix is hard.
 
 Rules:
 - Fix at the root cause. If several findings share one root cause, fix it once.
-- Make the minimal, localized change that resolves each REQUIRED finding.
+- Make the minimal, localized change that resolves each finding.
 - Edit files in the working tree. Do NOT stage, commit, amend, or push — leave
   all changes uncommitted for human review.
 - Verify before finishing: run \`uv run pre-commit run --files <changed files>\`
   and \`uv run pytest\`. A fix that breaks lint or tests is not a fix.
-- If a REQUIRED finding cannot be fixed safely and automatically, leave it and
-  say why.
+- If a finding is valid but cannot be fixed safely and automatically, leave it
+  and say why.
 
-End with a report titled "Fix summary" with one entry per REQUIRED finding:
-the finding (file:line and what was wrong) and exactly what you changed to fix
-it — or, if unfixed, why. Keep it concise.
+End with a report titled "Fix summary" with one entry per finding you handled,
+each starting with FIXED, DISPUTED, or UNFIXED: the finding (file:line and what
+was wrong), then exactly what you changed, the evidence for the dispute, or why
+it could not be fixed. Keep it concise.
 EOF
 
     echo ""
     echo "fix_enabled=true — applying fixes for REQUIRED findings with '$fix_agent'$label"
     echo "(this can take a few minutes)..."
-    fix_out=$(mktemp)
-    run_fix_agent "$fix_prompt" > "$fix_out" 2>&1
+    run_fix_agent "$fix_prompt" > "$fix_summary_file" 2>&1 || status=$?
+    # Carry on to verification either way: it judges whatever the fixer left.
+    [ "$status" -eq 124 ] && echo "WARNING: fix agent timed out after ${agent_timeout}s (agent_timeout)." >&2
 
     {
         echo
         echo "## Auto-fix$label"
         echo
-        cat "$fix_out"
+        cat "$fix_summary_file"
     } >> "$report"
 
     echo ""
     echo "==== Auto-fix$label — REQUIRED findings ===="
-    head -n "$show_limit" "$fix_out"
-    if [ "$(wc -l < "$fix_out")" -gt "$show_limit" ]; then
+    head -n "$show_limit" "$fix_summary_file"
+    if [ "$(wc -l < "$fix_summary_file")" -gt "$show_limit" ]; then
         echo "[... truncated at $show_limit lines — full fix summary in $report]"
     fi
-    rm -f "$fix_out"
+}
+
+# verify_fixes checks the fix pass instead of re-reviewing the whole branch: a
+# fresh full review turns up new findings each round and may never converge.
+# It judges each open finding RESOLVED, DISPUTE ACCEPTED, or OPEN, and reviews
+# only the fix diff for new REQUIRED issues. It replaces $findings_file with
+# what is still open, which is what the next fix pass reads. The committed fix
+# still gets a full review on the next push. $1 is a label suffix. Returns 0
+# only if nothing is left open.
+verify_fixes() {
+    local label=$1 prompt out status=0 ok=0
+
+    read -r -d '' prompt <<EOF || true
+You are verifying the fix pass of a pre-push code review for this repository.
+
+A review found REQUIRED issues, and a fix agent has since edited the working
+tree. Read:
+    $findings_file — the findings to judge (REQUIRED or OPEN ones)
+    $fix_summary_file — the fix agent's summary: FIXED, DISPUTED, or UNFIXED per finding
+The fixes are uncommitted. See them with:
+    git diff HEAD
+    git status --porcelain
+and read any new untracked files; they are part of the fix. Read surrounding
+source, CLAUDE.md, and docs/ as needed.
+
+Judge each REQUIRED or OPEN finding from the findings file:
+- RESOLVED: the fix removes the failure scenario, or makes the code match the doc.
+- DISPUTE ACCEPTED: the fix agent disputed it, and its evidence holds up when
+  you check it yourself. The finding was wrong.
+- OPEN: not fixed, fixed incompletely, or disputed without evidence that holds up.
+
+Then review the fix diff (git diff HEAD plus new untracked files, not the rest
+of the branch) for problems the fix itself introduces. $required_bar
+
+Report as markdown bullets:
+- **RESOLVED**, **DISPUTE ACCEPTED**, or **OPEN** — \`file:line\` — the original finding and your judgment
+- **REQUIRED** — \`file:line\` — a new issue in the fix diff, its failure scenario, and the change needed
+
+Restate each OPEN finding in full, with its failure scenario and the change
+needed: the next fix pass reads only this report.
+
+$verdict_rule
+EOF
+
+    out=$(mktemp)
+    echo ""
+    echo "Verifying the fixes$label (this can take a few minutes)..."
+    run_review_agent "$prompt" "$review_spec_model" > "$out" 2>&1 || status=$?
+    finish_pass "Fix verification$label" "$out" "$status" && ok=1
+    show_pass "Fix verification$label" "$out" "$ok"
+    mv "$out" "$findings_file"
+    [ "$ok" = 1 ]
 }
 
 # --- initial review ----------------------------------------------------------
 # Reviews the committed range that is actually being pushed. A pass here is the
 # only outcome that records the ledger and lets the push through.
 
-if run_review "$range" "the changes in git range $range" "" ""; then
+if run_review "$range"; then
     tmp=$(mktemp)
     [ -f "$ledger" ] && awk -v b="$branch" '$1 != b' "$ledger" > "$tmp"
     echo "$branch $head_sha" >> "$tmp"
@@ -480,13 +658,11 @@ if [ "$fix_enabled" != "true" ]; then
     exit 1
 fi
 
-# --- fix / re-review loop ----------------------------------------------------
-# Fixes are uncommitted, so re-reviews look at the working tree (base -> tree),
-# not the committed range. A working-tree pass is never recorded in the ledger
-# (the passing state isn't a commit) and never lets this push through: the fixes
-# must be committed and pushed, where they get one honest re-review.
+# --- fix / verify loop -------------------------------------------------------
+# Fixes are uncommitted, so a verified fix is never recorded in the ledger (the
+# passing state isn't a commit) and never lets this push through: the fixes
+# must be committed and pushed, where they get one honest full review.
 
-extra_note="Also run \`git status --porcelain\` and read any new untracked files the fixes added — they are part of the scope but will not appear in the diff above."
 iteration=1
 while :; do
     if ! apply_fixes " (iteration $iteration)"; then
@@ -494,11 +670,17 @@ while :; do
         exit 1
     fi
 
-    if run_review "$base" \
-        "the working tree relative to $base (your changes plus the just-applied fixes)" \
-        " (re-review $iteration)" "$extra_note"; then
+    if verify_fixes " (iteration $iteration)"; then
         echo ""
-        echo "Auto-fix resolved all REQUIRED findings after $iteration iteration(s)."
+        if [ -z "$(git status --porcelain)" ]; then
+            # Nothing to commit: every finding was disputed and the dispute
+            # upheld. Getting past the gate from here is a human decision.
+            echo "Every REQUIRED finding was disputed and the verifier accepted the disputes;"
+            echo "no code changed, so this push is still blocked. Read $report and decide:"
+            echo "push again for a fresh review, or skip the review for this push yourself."
+            exit 1
+        fi
+        echo "Auto-fix cleared all REQUIRED findings after $iteration iteration(s)."
         echo "The fixes are in the working tree, uncommitted — this push is still blocked."
         echo "Review the diff, commit the fixes, and push again — 'make ship' will offer"
         echo "to do that for you, with a confirmation, if this push came from make ship."
@@ -509,7 +691,7 @@ while :; do
 
     if [ "$iteration" -ge "$fix_max_iterations" ]; then
         echo ""
-        echo "Auto-fix stopped after $iteration iteration(s) (fix_max_iterations=$fix_max_iterations) with REQUIRED findings remaining."
+        echo "Auto-fix stopped after $iteration iteration(s) (fix_max_iterations=$fix_max_iterations) with findings still open."
         echo "Review the working tree and $report, finish the fixes, commit, and push again."
         exit 1
     fi

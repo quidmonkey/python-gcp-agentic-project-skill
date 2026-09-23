@@ -1,0 +1,20 @@
+%%{init: {'theme':'forest'}}%%
+%% Starting shape for docs/specs/<flow>-diagram.mmd: copy it, keep the init
+%% line and graph TD, then draw the nodes and edges for that flow only.
+%%
+%% Content rules for every diagram, design.mmd included:
+%% - A diagram is a high-level system and data-flow picture, not a second copy
+%%   of the spec's prose.
+%% - A node gets a few words: what it is, not how it works internally.
+%% - Label an edge only when it disambiguates what's flowing or which of several
+%%   tools or paths applies. A channel or protocol shared by every edge into the
+%%   same system belongs once in the spec's prose, not on each edge.
+%% - Leave out a dependency's internals once it's a box this project calls into
+%%   rather than owns. Show the boundary, not the other side of it.
+%% - A gate or callback that changes data flow can be a box. Its label names the
+%%   gate; the rule text, rationale, and edge cases belong in the spec's prose.
+%% - If a diagram is hard to read at a glance, cut a label. Don't add a legend.
+%%
+%% Delete these comments once the diagram has content.
+graph TD
+    A[Entry point] --> B[Component]

@@ -22,7 +22,7 @@ _How data moves through the system._
 
 _One numbered entry per end-to-end flow: a one-line summary, then a link to its spec under `specs/`. While the project is small, describe the flows inline here and leave this section empty — `specs/` doesn't exist yet._
 
-_Once this document passes ~400 lines or covers three or more flows, create `specs/` and split each flow into `specs/<flow>.md` (skeleton in `CLAUDE.md`) with a `specs/<flow>-diagram.mmd` beside it. What stays here: the overview, this index, the architecture, the data flow between components, deployment, and anything cross-cutting. What moves out: per-flow step-by-step behavior, the tools and endpoints a single flow calls, its configuration, and its edge cases._
+_Once this document passes ~400 lines or covers three or more flows, create `specs/` and split each flow into `specs/<flow>.md` (copied from `templates/spec.md`) with a `specs/<flow>-diagram.mmd` (copied from `templates/diagram.mmd`) beside it. What stays here: the overview, this index, the architecture, the data flow between components, deployment, and anything cross-cutting. What moves out: per-flow step-by-step behavior, the tools and endpoints a single flow calls, its configuration, and its edge cases._
 
 ## Trade-offs and Alternatives
 

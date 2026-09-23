@@ -57,7 +57,7 @@ if has docs/design.md && [ -f docs/design.md ] &&
   [ "$(wc -l <docs/design.md)" -gt 400 ] &&
   [ -z "$(find docs/specs -name '*.md' -print -quit 2>/dev/null)" ]; then
   stale="$stale
-- docs/specs/ -- docs/design.md is over 400 lines with no per-flow specs; create docs/specs/ and split each flow into docs/specs/<flow>.md (skeleton in CLAUDE.md) plus docs/specs/<flow>-diagram.mmd, leave the architecture and cross-cutting sections in design.md, and link each spec from its Flows index"
+- docs/specs/ -- docs/design.md is over 400 lines with no per-flow specs; create docs/specs/ and split each flow into docs/specs/<flow>.md (copy docs/templates/spec.md) plus docs/specs/<flow>-diagram.mmd (copy docs/templates/diagram.mmd), leave the architecture and cross-cutting sections in design.md, and link each spec from its Flows index"
 fi
 
 # Anything that moves the deployed GCP footprint moves the bill.

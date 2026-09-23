@@ -8,12 +8,6 @@
       "Bash(gcloud version *)",
       "Bash(gcloud info)",
       "Bash(gcloud info *)",
-      "Bash(gcloud auth print-access-token)",
-      "Bash(gcloud auth print-access-token *)",
-      "Bash(gcloud auth print-identity-token)",
-      "Bash(gcloud auth print-identity-token *)",
-      "Bash(gcloud auth application-default print-access-token)",
-      "Bash(gcloud auth application-default print-access-token *)",
       "Bash(gcloud auth list)",
       "Bash(gcloud auth list *)",
       "Bash(gcloud config list)",
@@ -249,6 +243,8 @@
       "Bash(bash -n *)",
       "Bash(bash scripts/docs-sync-check.sh)",
       "Bash(./scripts/docs-sync-check.sh)",
+      "Bash(bash scripts/precommit-check.sh)",
+      "Bash(./scripts/precommit-check.sh)",
       "Bash(uv sync)",
       "Bash(uv sync *)",
       "Bash(uv lock)",
@@ -337,7 +333,19 @@
       "Bash(gcloud projects delete *)",
       "Bash(gcloud projects create *)",
       "Bash(aws *)",
-      "Bash(az *)"
+      "Bash(az *)",
+      "Bash(make ship)",
+      "Bash(make ship *)",
+      "Bash(make deploy)",
+      "Bash(make deploy *)",
+      "Bash(bash scripts/ship.sh*)",
+      "Bash(./scripts/ship.sh*)",
+      "Bash(gcloud auth print-access-token)",
+      "Bash(gcloud auth print-access-token *)",
+      "Bash(gcloud auth print-identity-token)",
+      "Bash(gcloud auth print-identity-token *)",
+      "Bash(gcloud auth application-default print-access-token)",
+      "Bash(gcloud auth application-default print-access-token *)"
     ],
     "defaultMode": "auto"
   },
@@ -349,7 +357,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILES=$( { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u | while read -r f; do [ -e \"$f\" ] && echo \"$f\"; done); if [ -n \"$FILES\" ]; then echo \"$FILES\" | xargs uv run pre-commit run --files; else uv run pre-commit run --all-files; fi; exit 0"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/precommit-check.sh\""
           },
           {
             "type": "command",

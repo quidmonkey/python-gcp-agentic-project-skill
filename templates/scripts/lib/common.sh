@@ -1,7 +1,7 @@
 # Shared helpers for scripts/code-review.sh and scripts/ship.sh. Sourced, not
 # executed — no shebang, no set -u here (each caller sets its own options).
 
-# code-review.sh's fix/re-review loop touches this file instead of just
+# code-review.sh's fix/verify loop touches this file instead of just
 # exiting when it resolves every REQUIRED finding — the fixes are still
 # uncommitted (fix_enabled never commits or pushes on its own), but ship.sh
 # looks for this file right after a blocked `git push` to know whether it's

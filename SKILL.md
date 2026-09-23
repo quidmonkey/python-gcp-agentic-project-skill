@@ -146,10 +146,13 @@ Notes:
 | `templates/scripts/ship.sh` | `scripts/ship.sh` | write |
 | `templates/scripts/enable-auto-pr.sh` | `scripts/enable-auto-pr.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
+| `templates/scripts/precommit-check.sh` | `scripts/precommit-check.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/Makefile` | `Makefile` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
 | `templates/docs/design.mmd` | `docs/design.mmd` | write |
+| `templates/docs/templates/spec.md` | `docs/templates/spec.md` | write |
+| `templates/docs/templates/diagram.mmd` | `docs/templates/diagram.mmd` | write |
 | `templates/docs/finops.md` | `docs/finops.md` | write — **GCP only** |
 | `templates/docs/infra.md` | `docs/infra.md` | write — **GCP only** |
 | `templates/.gitignore` | `.gitignore` | write |
@@ -172,20 +175,23 @@ Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 | `templates/scripts/ship.sh` | `scripts/ship.sh` | write |
 | `templates/scripts/enable-auto-pr.sh` | `scripts/enable-auto-pr.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
+| `templates/scripts/precommit-check.sh` | `scripts/precommit-check.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
 | `templates/docs/design.mmd` | `docs/design.mmd` | write |
+| `templates/docs/templates/spec.md` | `docs/templates/spec.md` | write |
+| `templates/docs/templates/diagram.mmd` | `docs/templates/diagram.mmd` | write |
 | `templates/docs/finops.md` | `docs/finops.md` | write — GCP is always true in ASP mode |
 | `templates/docs/infra.md` | `docs/infra.md` | write |
 
 `templates/asp/Makefile-addendum`'s `run-check` target assumes `{{code-dir}}/agent.py` (e.g. `app/agent.py`) is the agent's entry point, matching agent-starter-pack's default layout for the built-in templates. If the chosen template or `--agent-directory` places it elsewhere, fix the target before reporting done.
 
 ```bash
-mkdir -p .claude docs working scripts/lib
-chmod +x scripts/code-review.sh scripts/ship.sh scripts/enable-auto-pr.sh scripts/docs-sync-check.sh
+mkdir -p .claude docs/templates working scripts/lib
+chmod +x scripts/code-review.sh scripts/ship.sh scripts/enable-auto-pr.sh scripts/docs-sync-check.sh scripts/precommit-check.sh
 ```
 
-Do not create `docs/specs/`. It comes into existence when the design outgrows one file; `CLAUDE.md` carries the spec skeleton and the rule for creating it then.
+Do not create `docs/specs/`. It comes into existence when the design outgrows one file; `CLAUDE.md` carries the rule for creating it then, and `docs/templates/` carries the spec skeleton and diagram starting shape.
 
 `working/` holds dirty files needed during development but never committed. The `.gitignore` template excludes it.
 
@@ -218,7 +224,7 @@ In ASP mode, run `uv run pre-commit run --all-files` once here and fix what it f
 
 ## Step 7: Trust the workspace
 
-Claude Code drops every project-scoped `permissions.allow` entry until the workspace is trusted, so a freshly scaffolded project starts with all 275 pre-approvals inert and all 35 `ask` rules live — maximally prompt-y. Record trust for the new directory so `.claude/settings.json` takes effect on first use.
+Claude Code drops every project-scoped `permissions.allow` entry until the workspace is trusted, so a freshly scaffolded project starts with all 271 pre-approvals inert and all 47 `ask` rules live — maximally prompt-y. Record trust for the new directory so `.claude/settings.json` takes effect on first use.
 
 Run from the project root. Both path spellings are recorded because Claude Code keys projects by the cwd it was started with, which may be a symlinked path. `uv run python` is used rather than a bare `python3` — uv is already a hard requirement and the project env exists by now, whereas `python3` goes through whatever version manager the user has and can fail inside a directory holding a `.python-version` file.
 
@@ -257,13 +263,13 @@ If the script exits with the JSON error, report it — do not hand-edit `~/.clau
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit (in ASP mode, layered on the agent-starter-pack stack: ADK/LangGraph, `uv`, ADK eval — say so explicitly, and name the agent template and deployment target chosen)
-- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run pre-commit and the docs-sync gate; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes, denies reads of `.env` variants that hold secrets and of `secrets/`). Every `ask` rule names a mutating subcommand rather than a bare binary — a wildcard like `Bash(gcloud *)` or `Bash(docker *)` would silently cancel the read-only allowlist below it, because permission rules merge across all settings files and `ask` outranks `allow`. In ASP mode, `CLAUDE.md` is agent-starter-pack's own file with this skill's governance section appended — say both parts are present, not that `CLAUDE.md` was generated fresh
+- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run the pre-commit gate `scripts/precommit-check.sh` and the docs-sync gate, both exiting 2 on failure so the agent sees them; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes, on `make ship`/`make deploy` (which `Bash(make *)` would otherwise let push, auto-merge, or deploy unprompted), and on `gcloud auth print-*-token` (keeps bearer tokens out of the transcript unless approved), denies reads of `.env` variants that hold secrets and of `secrets/`). Every `ask` rule names a specific subcommand rather than a bare binary — a wildcard like `Bash(gcloud *)` or `Bash(docker *)` would silently cancel the read-only allowlist below it, because permission rules merge across all settings files and `ask` outranks `allow`. In ASP mode, `CLAUDE.md` is agent-starter-pack's own file with this skill's governance section appended — say both parts are present, not that `CLAUDE.md` was generated fresh
 - Workspace trust: recorded in `~/.claude.json` (`hasTrustDialogAccepted`), so the allowlist is live on first run with no trust dialog. Say so explicitly — the user is entitled to know a scaffold granted its own pre-approvals
 - Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`; a changed spec's `docs/specs/<flow>-diagram.mmd` is stale or the spec isn't linked from the Flows index in `docs/design.md`; `docs/design.md` is over 400 lines with no per-flow specs yet; or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
-- Design doc split: while the project is small `design.md` holds everything, and `docs/specs/` doesn't exist. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (skeleton in `CLAUDE.md`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
-- Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude, `review_model` to sonnet); blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
-- Auto-fix: `fix_enabled=true` in `.codereviewrc` (default true) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` opus) that edits the working tree and verifies with pre-commit and pytest, then loops fix -> re-review (up to `fix_max_iterations`, default 2) until the tree passes; prints a capped fix summary and leaves changes uncommitted with the push still blocked either way — the hook itself never commits or pushes
+- Design doc split: while the project is small `design.md` holds everything, and `docs/specs/` doesn't exist. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (copied from `docs/templates/spec.md` and `docs/templates/diagram.mmd`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
+- Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude; `review_model` opus at `review_effort` high for pass 1, `review_spec_model` sonnet for pass 2 and fix verification). The headless review and fix agents run with `--setting-sources user --permission-mode dontAsk` and an explicit `--tools` list, so the project's Stop hooks and auto-mode permissions don't apply inside them; blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
+- Auto-fix: `fix_enabled=true` in `.codereviewrc` (default true) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` sonnet) that fixes each finding in the working tree (verifying with pre-commit and pytest) or disputes it with evidence, then a verification pass judges each finding resolved, dispute accepted, or open and reviews only the fix diff; fix -> verify loops (up to `fix_max_iterations`, default 2) until nothing is open; prints a capped fix summary and leaves changes uncommitted with the push still blocked either way — the hook itself never commits or pushes
 - Shipping: `make ship` (`scripts/ship.sh`) pushes the branch (same review gate as `git push`); if the fix loop above resolved every REQUIRED finding, it shows the diff and, only on your `y` confirmation, commits it and pushes again (up to `ship_fix_retries` in `.codereviewrc`, default 1) — decline, or run non-interactively, and it's left uncommitted exactly like a plain `git push`. Once the push succeeds — only when `pr_automation=true` in `.codereviewrc` (off by default) — it opens a PR via `gh` or `az repos pr` (auto-detected from `origin`), self-approves it (best-effort), enables auto-merge/auto-complete, polls until it lands, then checks out the default branch, pulls, and deletes the branch. Not a git hook: it runs after `git push` succeeds, since a PR can't be opened against commits the host doesn't have yet
 - Ship pre-flight: when `pr_automation=true`, before pushing anything `ship.sh` checks the relevant CLI (`gh auth status` / `az account show`) is installed and logged in; either one failing prints a friendly message naming the fix (install, `gh auth login`, or `az login`) and exits with nothing pushed
 - Auto-PR is opt-in: `scripts/enable-auto-pr.sh` sets `pr_automation=true` in `.codereviewrc`, run either via `make auto-pr` (anytime) or `--prompt` mode, which `make setup` runs once post-clone (a y/N prompt; a no-op if stdin isn't a TTY, e.g. CI). ASP mode has no `make setup` of its own to hook — `agent-starter-pack` owns `install` — so there `make auto-pr` is the only path; say so if asked

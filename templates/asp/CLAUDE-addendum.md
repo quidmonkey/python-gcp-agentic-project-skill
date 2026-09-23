@@ -15,7 +15,7 @@ The pre-push pytest hook runs `tests/unit` only, not `tests/integration` — the
 
 ## Design and architecture proposals
 
-When the user proposes a design or architecture change, interview them before implementing. Walk down each branch of the decision tree, resolving dependencies one by one. For each question, provide your recommended answer. Ask one question at a time. Explore the codebase to answer questions where possible before asking the user.
+When the user proposes a design or architecture change, interview them before implementing. Walk down each branch of the decision tree, resolving dependencies one by one. For each question, give the recommended answer and the reason for it. Ask one question at a time. Explore the codebase to answer questions where possible before asking the user.
 
 Trigger this for proposals that involve:
 - New services, components, or system boundaries
@@ -28,23 +28,25 @@ Only proceed to implementation after all decision branches are resolved and the 
 
 ## Before making changes
 
-Check for existing lint violations and failing tests first.
+When a change touches Python code, run the tests that cover that area first, so an existing failure isn't mistaken for one the change caused. Doc-only changes skip this.
 
 **Source of truth, highest authority first:** `docs/` (specs and `design.md`) > tests > code. Docs state intended behavior; tests encode it where the docs are silent; code only describes what happens now. Resolve any conflict by climbing to the highest level that speaks to it.
 
 So a failing test means either the code is wrong or the test contradicts the docs. Check the docs before assuming the test is correct; where they're silent, the test wins over the code.
 
-## After every code change
+## After a code change
 
-Before reporting done, run pre-commit over the changed files and confirm the agent still imports cleanly:
+A code change is any edit to a `*.py` file, `pyproject.toml`, `uv.lock`, or the `Makefile`. Before reporting one done, run pre-commit over the changed files and confirm the agent still imports cleanly:
 
 ```bash
 uv run pre-commit run --files <changed files>   # during iteration
-uv run pre-commit run --all-files               # before reporting a task complete
+uv run pre-commit run --all-files               # once, before reporting the task complete
 make run-check                                  # confirms the agent imports cleanly; also runs on git push
 ```
 
 `make run-check` here is an import check, not a substitute for `make playground` or `make eval` — run those too for behavioral changes, per the development phases above. When the agent's entry point changes, update the target in the same change so it keeps exercising real startup.
+
+An edit that touches only docs or other prose needs nothing more: the Stop hook already runs pre-commit on the changed files.
 
 Fix every failure at root cause:
 - Never use `--no-verify` or `--skip`, and never disable a lint rule to silence a failure
@@ -55,21 +57,18 @@ If design, architecture, or public API changed, update `docs/design.md` — or t
 
 ## Code review gate
 
-`git push` triggers a two-pass agentic review (pre-push hook, `scripts/code-review.sh`): pass 1 is a general review (DRY, YAGNI, library leverage, missing tests, security), pass 2 checks the change against the intent in `docs/`. Any REQUIRED finding blocks the push. The hook prints both passes' findings and writes the full report to `working/code-review-report.md`. Config lives in `.codereviewrc` (gitignored, personal — not shared team policy).
-
-`fix_enabled` defaults to `true`: a failed review hands its REQUIRED findings to a fix agent that edits the working tree and re-reviews in a loop (`fix_max_iterations`, default 2). The fix is always left uncommitted — the hook itself never commits or pushes, so nothing an agent wrote reaches the remote unseen. Run via a plain `git push`, that's the end of it: fix every REQUIRED finding at root cause yourself (or review the auto-fix's diff), commit, and push again — only new commits get re-reviewed. Run via `make ship` (`scripts/ship.sh`), and if the fix loop resolved every REQUIRED finding, `ship.sh` shows the diff and, only on your explicit `y` confirmation, commits it and pushes again — up to `ship_fix_retries` times (default 1). Declining, or a non-interactive shell, leaves it uncommitted exactly like the plain-`git push` case.
+`git push` runs a two-pass agentic review in a pre-push hook (`scripts/code-review.sh`). Any REQUIRED finding blocks the push. When a push is blocked, read `working/code-review-report.md`. An auto-fix may have left uncommitted changes in the working tree; review that diff, or fix each REQUIRED finding at root cause yourself, then commit and push again.
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
 
-`make ship` (`scripts/ship.sh`) pushes the branch. It runs the same push (and the same review gate) as `git push`; it does not add a second way to bypass a failing review. When `pr_automation=true` in `.codereviewrc` (off by default — `make auto-pr` turns it on) it goes further: opens a PR, self-approves it, and enables auto-merge, landing it once checks and any required review clear, then checks out the default branch, pulls, and deletes the branch.
-
-With `pr_automation=true`, `ship.sh` checks the relevant CLI (`gh` or `az`) is installed and logged in before pushing anything — missing either prints a friendly message and exits without touching the branch.
+`make ship` pushes the branch and, if the developer has turned on PR automation, opens, approves, and auto-merges a PR. Run it only when the user asks. `README.md` documents the review settings, auto-fix, and PR automation.
 
 ## Documentation
 
 Project docs live in `docs/`, alongside the agent-starter-pack guides linked above:
 - `design.md` — RFC; defines architecture and design decisions
 - `design.mmd` — Mermaid diagram of the design
+- `templates/` — starting points for per-flow specs and diagrams
 - `finops.md` — GCP cost analysis for the design
 - `infra.md` — CI/CD pipeline, IAM accounts and roles
 
@@ -77,47 +76,13 @@ Project docs live in `docs/`, alongside the agent-starter-pack guides linked abo
 
 ### Splitting design.md into per-flow specs
 
-While the project is small, `design.md` holds everything. Once it passes ~400 lines or covers three or more flows, split it: create `docs/specs/` and give each flow a `docs/specs/<flow>.md` (kebab-case, from the skeleton below) with a `docs/specs/<flow>-diagram.mmd` beside it.
+While the project is small, `design.md` holds everything. Once it passes ~400 lines or covers three or more flows, split it: create `docs/specs/` and give each flow a `docs/specs/<flow>.md` (kebab-case, copied from `docs/templates/spec.md`) with a `docs/specs/<flow>-diagram.mmd` (copied from `docs/templates/diagram.mmd`) beside it.
 
 `design.md` keeps the overview, the Flows index, the architecture, the data flow between components, deployment, and anything cross-cutting (auth, observability, security). Each spec takes its flow's step-by-step behavior, the tools and endpoints only it calls, its configuration, its edge cases, and its limits. Don't restate a spec's contents in `design.md` — the index line plus the link is the whole handoff.
 
 A spec is the source of truth for its flow. When a change touches one flow, that spec is the doc to read first and the doc to update.
 
-Start each new spec from this skeleton. Fill it in, drop the sections that don't apply, and keep both links — the up-link to `design.md` and the down-link to the diagram are how the set stays navigable.
-
-````markdown
-# Spec — <Flow Name>
-
-Flow covered: **<Flow Name>** — one sentence on what the user asks for and what they get back.
-
-Diagram: [<flow>-diagram.mmd](<flow>-diagram.mmd). High-level architecture: [design.md](../design.md).
-
-## How it works
-
-Numbered steps through the flow. Name the actual functions, endpoints, and tools, and link to the source files. State what happens on the unhappy paths — no match, ambiguous match, upstream error, missing permission.
-
-## Components and integrations
-
-What this flow touches. A table works well past two or three.
-
-## Configuration
-
-Settings this flow reads, where they come from, and what happens when one is unset.
-
-## Auth and access
-
-Whose identity each call runs as, and what that means for what the user can see.
-
-## Limits and out of scope
-
-What this flow deliberately does not do, and the data it does not have. Record the shortcuts here rather than leaving them implicit.
-
-## Open questions
-
-Decisions still outstanding, each with who owns it. Delete the section when it empties.
-````
-
-The matching `docs/specs/<flow>-diagram.mmd` starts from the same shape as `docs/design.mmd`: a `%%{init: {'theme':'forest'}}%%` line, `graph TD`, then the nodes and edges for that flow only.
+Every `.mmd` diagram, `design.mmd` included, is a high-level system and data-flow picture. Read the content rules at the top of `docs/templates/diagram.mmd` before editing one.
 
 **Sync rules**: After editing `docs/design.md`, update `docs/design.mmd` to match before reporting done. After editing a spec, update its `-diagram.mmd`. A new spec must be linked from the Flows index in `docs/design.md`. After any change to the deployed GCP footprint — `docs/design.md`, `docs/infra.md`, `Dockerfile`, `deployment/terraform/*.tf`, or `scripts/deploy.sh` — update `docs/finops.md` so the service table and cost estimates match what is actually deployed.
 

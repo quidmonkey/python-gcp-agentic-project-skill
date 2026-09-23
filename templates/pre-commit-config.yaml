@@ -1,5 +1,8 @@
 # pre-push is required for the pytest and code-review hooks below.
 default_install_hook_types: [pre-commit, pre-push]
+# Stop at the first failing hook: the paid code review runs last and shouldn't
+# spend a model run on a push that pytest or run-check has already blocked.
+fail_fast: true
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

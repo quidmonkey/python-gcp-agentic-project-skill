@@ -4,12 +4,30 @@
 # Review agent: claude | custom
 review_agent=claude
 
-# Model for the review passes (alias or full name). Pinned rather than inheriting
-# the CLI default: a blocked push with auto-fix on runs up to 6 review passes.
-review_model=sonnet
+# Models are set here rather than inherited from the CLI default. Aliases
+# (opus, sonnet) move to each new release; a full ID such as claude-opus-5-5
+# pins one exactly. A blocked push with auto-fix on runs up to 4 review-agent
+# passes and 2 fix passes.
+
+# Model for pass 1, the general review. Finding bugs nobody has named yet is the
+# hardest job in the gate: a missed bug is invisible, and a false REQUIRED costs
+# a fix and a verification round.
+review_model=opus
+
+# Effort for pass 1: low | medium | high | xhigh | max | default (CLI default).
+review_effort=high
+
+# Model for pass 2 (spec conformance) and for verifying fixes. Both compare the
+# code against a stated doc or finding.
+review_spec_model=sonnet
 
 # Set to false to disable the pre-push code review entirely.
 enabled=true
+
+# Seconds any one agent call (review, verification, or fix) may run before it
+# is killed. A timed-out review pass counts as failed, so a hung agent blocks
+# the push instead of hanging it forever.
+agent_timeout=900
 
 # Required when review_agent=custom. The command receives the review prompt on
 # stdin and must print its review to stdout, whose last non-empty line reads
@@ -19,8 +37,9 @@ enabled=true
 # --- Auto-fix -----------------------------------------------------------------
 
 # When true, a failed review hands its REQUIRED findings to a fix agent that
-# edits the working tree to resolve them, then re-reviews and fixes again in a
-# loop until the working tree passes or fix_max_iterations is reached. Both
+# fixes each one in the working tree or disputes it with evidence, then a
+# verification pass checks the fix; fix -> verify loops until nothing is open or
+# fix_max_iterations is reached. Both
 # review passes' findings go to a single fix agent (no per-issue parallelism —
 # coupled fixes and shared root causes need one coherent pass). Fixes are left
 # uncommitted; the push stays blocked so you review, commit, and push again.
@@ -31,11 +50,11 @@ fix_enabled=true
 # Agent used to apply fixes when fix_enabled=true: claude | custom
 fix_agent=claude
 
-# Model for the fix pass. Stronger default than the review passes — the fixer
-# writes code, and it runs at most twice per push.
-fix_model=opus
+# Model for the fix pass. The findings it works from already name the file, the
+# failure, and the change needed, and a verification pass checks its work.
+fix_model=sonnet
 
-# Max fix -> re-review rounds before the loop gives up (positive integer).
+# Max fix -> verify rounds before the loop gives up (positive integer).
 fix_max_iterations=2
 
 # Required when fix_agent=custom. The command receives the fix prompt (which
@@ -46,7 +65,7 @@ fix_max_iterations=2
 # auto-fix and push again in one run (positive integer). By the time ship.sh
 # sees a fix ready to commit, the fix_max_iterations loop above has already
 # converged it to a passing working tree, so more than one retry here is only
-# ever needed if the fresh commit's honest re-review turns up something new.
+# ever needed if the fresh commit's full review turns up something new.
 # A plain `git push` never commits or retries on its own either way — that
 # only happens through `make ship`.
 ship_fix_retries=1
