@@ -6,7 +6,9 @@ __pycache__/
 .ruff_cache/
 dist/
 *.egg-info/
-.claude/skills/
+# Per-project skills stay local, except /ship, which the team shares.
+.claude/skills/*
+!.claude/skills/ship/
 working/
 # Personal review/ship automation settings — not team policy, see .codereviewrc's
 # own comments. Scaffolded fresh for every clone; not synced between machines.

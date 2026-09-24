@@ -6,7 +6,8 @@
 # The passes are independent and run in parallel.
 #
 # Commits are reviewed once: the last passing commit per branch is recorded in
-# .git/code-review-ledger, and later pushes review only new commits since.
+# .git/code-review-ledger (shared by every worktree, written under a lock), and
+# later pushes review only new commits since.
 # The full report is written to working/code-review-report.md (gitignored).
 #
 # fix_enabled defaults to true: a failed review hands its REQUIRED findings
@@ -17,17 +18,17 @@
 #
 # Config: .codereviewrc (key=value) — review_agent, review_model,
 #         review_effort, review_spec_model, enabled, command, fix_enabled,
-#         fix_agent, fix_model, fix_command, agent_timeout.
+#         fix_agent, fix_model, fix_command, agent_timeout. Any key can be
+#         overridden for one push with CR_<KEY>, e.g. CR_REVIEW_MODEL=sonnet.
 # Skip:   SKIP_CODE_REVIEW=true git push, or enabled=false in .codereviewrc.
+# Base:   REVIEW_BASE_BRANCH replaces the default branch as a branch's
+#         first-review base (ship.sh sets it to develop).
 #
-# After a push succeeds, `make ship` (scripts/ship.sh) opens a PR, self-
-# approves and auto-merges it, then checks out and cleans up the branch. It's
-# a separate script, not another stage of this hook: pre-push runs before the
-# commits reach the remote, and a PR can't be opened against commits the host
-# doesn't have yet. The one exception: if the fix loop below resolves every
+# `make ship` (scripts/ship.sh) runs this same hook from its own worktree, then
+# opens a PR against the pushed commits. If the fix loop below resolves every
 # REQUIRED finding, this hook still blocks the push (see $autofix_marker in
-# lib/common.sh) but ship.sh offers, with a confirmation, to commit that fix
-# and push again — see ship_fix_retries in .codereviewrc.
+# lib/common.sh); ship.sh commits that fix and pushes again, up to
+# ship_fix_retries times. A plain `git push` never does.
 set -u
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
@@ -46,41 +47,31 @@ case "${SKIP_CODE_REVIEW:-}" in
         ;;
 esac
 
-review_agent=$(rc_get review_agent)
-review_agent=${review_agent:-claude}
+review_agent=$(rc_value review_agent)
 # Set explicitly rather than inheriting the CLI's default model. Aliases
 # (opus, sonnet) still move to each new release; a full model ID pins exactly.
 # Pass 1 hunts for bugs nobody has named yet, the hardest job in the gate, so
 # it gets the strongest model and a higher effort; a missed bug is invisible,
 # and a false REQUIRED costs a fix and a verification round.
-review_model=$(rc_get review_model)
-review_model=${review_model:-opus}
-review_effort=$(rc_get review_effort)
-review_effort=${review_effort:-high}
+review_model=$(rc_value review_model)
+review_effort=$(rc_value review_effort)
 # Pass 2 and fix verification compare code against a stated doc or finding.
-review_spec_model=$(rc_get review_spec_model)
-review_spec_model=${review_spec_model:-sonnet}
-enabled=$(rc_get enabled)
-enabled=${enabled:-true}
-custom_cmd=$(rc_get command)
+review_spec_model=$(rc_value review_spec_model)
+enabled=$(rc_value enabled)
+custom_cmd=$(rc_value command)
 
 # Auto-fix: after a failed review, hand the REQUIRED findings to a fix agent
 # that edits the working tree. On by default so a push keeps looping fix ->
 # verify until nothing is open; fixes are always left uncommitted.
-fix_enabled=$(rc_get fix_enabled)
-fix_enabled=${fix_enabled:-true}
-fix_agent=$(rc_get fix_agent)
-fix_agent=${fix_agent:-claude}
+fix_enabled=$(rc_value fix_enabled)
+fix_agent=$(rc_value fix_agent)
 # The fixer works from findings that already name the file, the failure, and
 # the change needed, and a verification pass checks its work.
-fix_model=$(rc_get fix_model)
-fix_model=${fix_model:-sonnet}
-fix_cmd=$(rc_get fix_command)
-fix_max_iterations=$(rc_get fix_max_iterations)
-fix_max_iterations=${fix_max_iterations:-2}
+fix_model=$(rc_value fix_model)
+fix_cmd=$(rc_value fix_command)
+fix_max_iterations=$(rc_value fix_max_iterations)
 # Seconds any one agent call may run before it's killed and counted as failed.
-agent_timeout=$(rc_get agent_timeout)
-agent_timeout=${agent_timeout:-900}
+agent_timeout=$(rc_value agent_timeout)
 
 if [ "$enabled" = "false" ]; then
     echo "Code review disabled in $rc_file — skipping."
@@ -172,50 +163,6 @@ fi
 # The prompt is an argument, so stdin is closed: otherwise -p waits on it.
 claude_sandbox_flags=(--setting-sources user --permission-mode dontAsk)
 
-# with_timeout <seconds> <cmd...> runs cmd and kills it after <seconds>,
-# returning 124 like coreutils timeout, which macOS doesn't ship. A hung agent
-# would otherwise block git push forever; a timed-out pass fails closed.
-with_timeout() {
-    local secs=$1 pid watchdog status=0 flag
-    shift
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$secs" "$@"
-        return
-    fi
-    if command -v gtimeout >/dev/null 2>&1; then
-        gtimeout "$secs" "$@"
-        return
-    fi
-    flag=$(mktemp)
-    rm -f "$flag"
-    # <&0: a background job's stdin is otherwise /dev/null, and custom agents
-    # read their prompt from stdin.
-    "$@" <&0 &
-    pid=$!
-    # Polls rather than one long sleep, so the watchdog exits within a second
-    # of the command finishing instead of lingering for the full timeout.
-    (
-        elapsed=0
-        while kill -0 "$pid" 2>/dev/null; do
-            if [ "$elapsed" -ge "$secs" ]; then
-                touch "$flag"
-                kill "$pid" 2>/dev/null
-                exit 0
-            fi
-            sleep 1
-            elapsed=$((elapsed + 1))
-        done
-    ) &
-    watchdog=$!
-    wait "$pid" 2>/dev/null || status=$?
-    wait "$watchdog" 2>/dev/null
-    if [ -e "$flag" ]; then
-        rm -f "$flag"
-        return 124
-    fi
-    return "$status"
-}
-
 run_review_agent() {
     local effort_flags=()
     [ -n "${3:-}" ] && [ "$3" != default ] && effort_flags=(--effort "$3")
@@ -266,12 +213,9 @@ fi
 head_sha=${to_ref:-$(git rev-parse HEAD)}
 branch="${PRE_COMMIT_LOCAL_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 branch=${branch#refs/heads/}
-ledger="$(git rev-parse --git-dir)/code-review-ledger"
+base_branch=${REVIEW_BASE_BRANCH:-$(default_branch)}
 
-base_branch=$(default_branch)
-
-last_reviewed=""
-[ -f "$ledger" ] && last_reviewed=$(awk -v b="$branch" '$1 == b { print $2 }' "$ledger")
+last_reviewed=$(ledger_get "$branch")
 
 from_ref="${PRE_COMMIT_FROM_REF:-}"
 [ "$from_ref" = "$zero_sha" ] && from_ref=""
@@ -639,10 +583,9 @@ EOF
 # only outcome that records the ledger and lets the push through.
 
 if run_review "$range"; then
-    tmp=$(mktemp)
-    [ -f "$ledger" ] && awk -v b="$branch" '$1 != b' "$ledger" > "$tmp"
-    echo "$branch $head_sha" >> "$tmp"
-    mv "$tmp" "$ledger"
+    if ! ledger_set "$branch" "$head_sha"; then
+        echo "Code review PASSED, but the ledger write failed — the next push reviews these commits again." >&2
+    fi
     echo ""
     echo "Code review PASSED. Recorded for '$branch' — only new commits will be reviewed next push."
     echo "Report: $report"
@@ -682,8 +625,8 @@ while :; do
         fi
         echo "Auto-fix cleared all REQUIRED findings after $iteration iteration(s)."
         echo "The fixes are in the working tree, uncommitted — this push is still blocked."
-        echo "Review the diff, commit the fixes, and push again — 'make ship' will offer"
-        echo "to do that for you, with a confirmation, if this push came from make ship."
+        echo "Review the diff, commit the fixes, and push again. If this push came from"
+        echo "make ship, it commits the fix and pushes again on its own (ship_fix_retries)."
         echo "Report: $report"
         touch "$autofix_marker"
         exit 1

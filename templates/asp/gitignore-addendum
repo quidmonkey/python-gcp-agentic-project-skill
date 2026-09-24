@@ -1,6 +1,8 @@
 
 # Added by python-gcp-agentic-project-skill (layered on agent-starter-pack)
 .ruff_cache/
-.claude/skills/
+# Per-project skills stay local, except /ship, which the team shares.
+.claude/skills/*
+!.claude/skills/ship/
 working/
 .codereviewrc

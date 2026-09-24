@@ -8,7 +8,15 @@ Clone the repo, then:
 make setup
 ```
 
-This installs dependencies with `uv` and the git hooks with `pre-commit` (both the pre-commit and pre-push stages), then asks whether to enable auto-PR — `make ship` opening, self-approving, and auto-merging a PR after a successful push. It's off by default; answer yes, or run `make auto-pr` anytime later, to turn it on. See [Shipping a branch](#shipping-a-branch).
+This installs dependencies with `uv` and the git hooks with `pre-commit` (both the pre-commit and pre-push stages), then asks how far `/ship` should go after the review and push: `push`, `open_pr` (the default), `merge`, or `verify_deploy`. See [Shipping a branch](#shipping-a-branch).
+
+The default branch is `develop`; `/ship` opens PRs into it. On the repo's first push, make it the remote default too:
+
+```bash
+git push -u origin main develop
+gh repo edit --default-branch develop   # or: az repos update --repository <repo> --default-branch develop
+git remote set-head origin develop
+```
 
 ## Everyday commands
 
@@ -18,8 +26,8 @@ make lint       # run all pre-commit hooks
 make check      # ruff + ty
 make run-check  # confirm the app still starts (also runs on git push)
 make review     # run the code review manually (also runs on git push)
-make ship       # push, then (if auto-PR is enabled) open/approve/auto-merge a PR
-make auto-pr    # enable make ship's PR automation (off by default)
+make ship       # review, push and ship the branch into develop (or /ship in a session)
+make ship-stage STAGE=open_pr  # how far make ship goes by default
 ```
 
 Tools run through `uv run`, so nothing needs to be installed globally.
@@ -39,7 +47,7 @@ Reviews are incremental. After a passing review, the reviewed commit is recorded
 
 ### Auto-fix
 
-Set `fix_enabled=true` to have a failed review hand its REQUIRED findings to a fix agent. Both passes' findings go to a single fix agent — coupled fixes and shared root causes need one coherent pass, not one agent per finding. For each finding the agent either fixes it in the working tree or disputes it with checkable evidence (a `file:line`, a quoted doc statement, or test output), then prints a fix summary (also appended to the report). SUGGESTED findings are left alone.
+With `fix_enabled=true` (the default), a failed review hands its REQUIRED findings to a fix agent. Both passes' findings go to a single fix agent — coupled fixes and shared root causes need one coherent pass, not one agent per finding. For each finding the agent either fixes it in the working tree or disputes it with checkable evidence (a `file:line`, a quoted doc statement, or test output), then prints a fix summary (also appended to the report). SUGGESTED findings are left alone.
 
 A verification pass then checks the fix rather than re-reviewing the whole branch: each finding is judged resolved, dispute accepted, or still open, and only the fix diff is reviewed for new problems. A fresh full review each round would turn up new findings and might never converge. Fix -> verify repeats until nothing is open or `fix_max_iterations` is hit. If every finding was disputed and nothing changed, the push stays blocked and the call is yours. The fixes are always left uncommitted and the push always stays blocked, even once the working tree passes — the state that passed is uncommitted, not a commit, so it can't be recorded or shipped. Review the diff, commit the fixes, and push again; the committed fixes get one full review and the pass is recorded then.
 
@@ -61,14 +69,9 @@ fix_model=sonnet       # model for the fix pass
 fix_max_iterations=2   # max fix -> verify rounds before giving up
 agent_timeout=900      # seconds any one agent call may run; a timeout fails the pass
 # fix_command=...      # for fix_agent=custom: reads the fix prompt on stdin, edits the tree
-
-pr_automation=false    # true: `make ship` also opens/approves/auto-merges a PR (set via `make auto-pr` or the `make setup` prompt)
-# pr_host=gh           # gh | az, auto-detected from origin's remote URL
-pr_merge_method=squash # squash | merge | rebase, used once auto-merge completes
-pr_self_approve=true   # best-effort; a no-op if the host rejects self-review
-pr_poll_interval=15    # seconds between polls while waiting for auto-merge
-pr_poll_timeout=1800   # give up waiting after this many seconds (auto-merge stays armed)
 ```
+
+The ship settings are further down, under [Ship settings](#ship-settings).
 
 The models are set explicitly rather than inherited from the `claude` CLI default. Aliases like `opus` and `sonnet` still move to each new release; set a full model ID (for example `claude-opus-5-5`) to pin one exactly. Pass 1 gets the strongest model because finding unreported bugs is the hardest job in the gate. A missed bug goes unnoticed, and a false REQUIRED costs a fix and a verification round. Pass 2, verification, and the fix pass all work from a stated doc or finding, so they run on Sonnet. One blocked push with `fix_enabled=true` runs 2 review passes plus up to 2 fix and 2 verification passes.
 
@@ -84,17 +87,81 @@ Or set `enabled=false` in `.codereviewrc` to turn it off for the repo. Skipping 
 
 ## Shipping a branch
 
-`make ship` (`scripts/ship.sh`) always pushes the current branch (running the same review gate as `git push`). What happens next depends on `pr_automation` in `.codereviewrc`, off by default: with it enabled, `ship.sh` also opens a PR against the default branch, self-approves it, enables auto-merge, and once it lands, checks out the default branch, pulls, and deletes the branch (local and remote). With it disabled, `ship.sh` stops after the push and leaves the PR to you.
+Run `/ship` in a Claude Code session, or `make ship` in a terminal. The ship runs from its own git worktree, so you can keep editing while it works.
 
-Enable it with `make auto-pr`, or by answering yes to the prompt `make setup` runs once after a fresh clone.
+1. A read-only plan prints the resolved settings, each tagged with where its value came from, and checks everything the stage needs: CLI logins, reviewers, the deploy target. Nothing is created yet.
+2. You confirm. In a session that's the permission prompt on `make ship`. In a terminal it's `Proceed? [y/N]`. Denying leaves everything as it was.
+3. The commit at HEAD is frozen as the branch `ship/<branch>-<sha7>`, checked out in a new worktree at `../<repo>.ship-<id>`. Commits you make afterwards don't join this ship.
+4. The worktree pushes the snapshot branch, which runs the pre-push review there. If the auto-fix clears every REQUIRED finding, the ship commits the fix and pushes again, up to `ship_fix_retries` times. If REQUIRED findings are still open, the ship fails and the report is copied to `.git/ship/<id>/code-review-report.md`.
+5. The ship then goes as far as `ship_stage`. Each stage includes the ones before it.
 
-It's a separate script from the pre-push hook: `code-review.sh` runs before the commits reach the remote, so it can't open a PR against them. `ship.sh` pushes first, and only opens the PR once that push succeeds. The PR title and description come from the branch's own commit log, not a generated summary.
+| Stage | What runs |
+|---|---|
+| `push` | Stops after the push |
+| `open_pr` | Opens a PR from the snapshot branch into `develop` and adds `pr_reviewers`. The default |
+| `merge` | Self-approves, arms auto-merge (squash, delete the source branch), and waits for the merge |
+| `verify_deploy` | Waits for the dev pipeline run on the merge commit, checks the service is healthy and running that commit, and runs the smoke test |
 
-`ship.sh` picks `gh` or `az repos pr` from `origin`'s remote URL unless `pr_host` is set. Self-approval is best-effort: on a branch that requires review from someone else, the host rejects it and auto-merge (not an immediate merge) waits for a real reviewer instead of failing.
+Ship only ever targets `develop`. It never merges to `main`, so it can't trigger a prod deploy. Your checkout and local branches are never touched: after a merge the final message suggests `git branch -d <branch>`, and nothing else changes. A passed ship removes its worktree and local snapshot branch. A failed or stopped one keeps both for inspection.
 
-Before pushing anything, `ship.sh` checks that CLI is installed and logged in. Either one missing prints a friendly message (install it, or run `gh auth login` / `az login`) and exits without pushing.
+```bash
+/ship                        # plan, confirm, run in the background, report each stage
+/ship merge                  # a different stage for this run
+/ship review_model=sonnet    # any .codereviewrc key, for this run
+/ship status                 # running and recent ships
+/ship stop                   # stop a running ship and list what it left (open PR, armed auto-merge)
 
-`.codereviewrc` is gitignored and personal to your machine — `pr_automation` decides whether *your* pushes get auto-merged, which shouldn't flip on for a teammate just because they pulled a commit, and stays off until you deliberately turn it on. Every other default above is baked into the scripts, so a fresh clone with no `.codereviewrc` at all behaves exactly like the file shown here; edit your local copy only to actually change something.
+make ship-plan STAGE=merge SET='review_model=sonnet'   # the plan only
+make ship STAGE=merge                                  # plan, prompt, then run in the foreground
+make ship-stage STAGE=open_pr                          # change your default stage
+```
+
+A background ship keeps running if the session closes. Each ship's `status.json`, `events`, `ship.log` and review report live in `.git/ship/<id>/`. They're deleted `ship_log_retention_days` (default 30) after the ship finishes.
+
+At `open_pr` without named reviewers, `/ship` asks whether to add any. At `merge` and above the PR is approved and merged right away, so the plan warns if `pr_reviewers` is set.
+
+### Overrides
+
+Any `.codereviewrc` key can be changed for one run without editing the file. Highest priority first:
+
+1. `/ship key=value` in a session, `make ship SET='key=value;key=value'`, or `ship.sh --set key=value`. `STAGE=merge` is shorthand for `ship_stage`.
+2. The environment variable `CR_<KEY>`, for example `CR_REVIEW_MODEL=sonnet`.
+3. `.codereviewrc`.
+4. The built-in default.
+
+An unknown key fails the plan and names the closest known one. An empty value means the default. Plain `git push` honors `CR_*` too, so `CR_REVIEW_MODEL=sonnet git push` works. Overrides are never written back; `make ship-stage` is the one command that edits the file.
+
+### Deploy verification
+
+`verify_deploy` checks the dev environment only, after filling in the `deploy_*` keys in `.codereviewrc`. It looks for a `deploy_pipeline` run on `develop` for the merge commit. If none appears within `deploy_run_grace` seconds, the pipeline's path filters excluded the change: the stage is recorded as skipped and the ship passes.
+
+Once the run succeeds, the target has to be healthy. A Cloud Run service needs Ready=True and 100% of traffic on its latest ready revision; an Agent Engine has to exist under `deploy_name`. It also has to be this commit. With `deploy_match=sha` the revision must be named `<service>-<sha12>`, or the engine must carry a `commit=<sha12>` label. Otherwise it must have been created or updated after the run started.
+
+The smoke test (`deploy_smoke`) runs in the ship's worktree with `DEPLOY_URL`, `DEPLOY_RESOURCE` and `DEPLOY_SHA` set, and its exit code decides the result. A smoke test that skips and exits 0 when it can't reach the target makes this check meaningless, so set its require-live flag (for example `SMOKE_TEST_REQUIRE_LIVE=1`). For a private Cloud Run service, `deploy_proxy=true` points `DEPLOY_URL` at a local `gcloud run services proxy`.
+
+### Ship settings
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `ship_stage` | `push`, `open_pr`, `merge`, `verify_deploy` | `open_pr` |
+| `ship_fix_retries` | times one ship commits an auto-fix and pushes again | `1` |
+| `ship_log_retention_days` | days to keep finished ship logs; `0` keeps them | `30` |
+| `ship_notify` | `none`, `desktop` (macOS notification per stage) | `none` |
+| `pr_host` | `gh`, `az` | detected from `origin` |
+| `pr_reviewers` | comma-separated GitHub users or `org/team`; ADO emails or `[Project]\Team` | none |
+| `pr_merge_method` | `squash`, `merge`, `rebase` | `squash` |
+| `pr_self_approve` | `true`, `false`; a host that rejects self-review makes it a no-op | `true` |
+| `pr_poll_interval` / `pr_poll_timeout` | seconds between polls / before the merge stage gives up | `15` / `1800` |
+| `deploy_pipeline` | ADO pipeline name or ID, or GitHub workflow name | none |
+| `deploy_provider` | `cloud_run`, `agent_engine` | none |
+| `deploy_project` / `deploy_region` | dev GCP project / region | none / `us-central1` |
+| `deploy_name` | Cloud Run service or Agent Engine display name | none |
+| `deploy_match` | `sha`, `time` | `time` |
+| `deploy_proxy` | `true`, `false` | `false` |
+| `deploy_smoke` | smoke test command | none |
+| `deploy_run_grace` / `deploy_poll_timeout` / `deploy_smoke_timeout` | seconds | `300` / `3600` / `900` |
+
+`.codereviewrc` is gitignored and personal to your machine. How far your ships go is your call, and it shouldn't change for a teammate because they pulled a commit. Every default is built into the scripts, so a clone with no `.codereviewrc` behaves like the scaffolded file. A file that still has the old `pr_automation` key and no `ship_stage` is read as `merge` (true) or `push` (false), with a notice.
 
 ## Documentation
 

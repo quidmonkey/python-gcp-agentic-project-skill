@@ -108,7 +108,7 @@ If design, architecture, or public API changed, update `docs/design.md` — or t
 
 Never set `SKIP_CODE_REVIEW`, set `enabled=false` in `.codereviewrc`, or use `SKIP=code-review` to get past a failing review. Skipping is a human decision.
 
-`make ship` pushes the branch and, if the developer has turned on PR automation, opens, approves, and auto-merges a PR. Run it only when the user asks. `README.md` documents the review settings, auto-fix, and PR automation.
+`/ship` (`.claude/skills/ship/`) ships the branch into `develop` from its own worktree: review, push, then a PR, the merge, and the dev deploy check, as far as the configured stage. Start a ship only through `/ship`, and only when the user asks; the permission prompt on `make ship` is its confirmation. `README.md` documents the review settings, auto-fix, and shipping.
 
 ## Testing
 

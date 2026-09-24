@@ -7,16 +7,19 @@ A Claude Code skill that scaffolds Python projects with `uv`. One command wires 
 ```
 my-project/
 ├── .claude/
-│   └── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist; auto mode on
+│   ├── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist; auto mode on
+│   └── skills/ship/         # the /ship skill: plan, start, follow, stop a background ship
 ├── docs/                    # design.md, design.mmd, templates/ (spec + diagram starters); + finops.md, infra.md for GCP
 ├── scripts/
-│   ├── lib/common.sh        # shared rc-parsing/default-branch helpers
+│   ├── lib/common.sh        # settings (CR_* overrides, defaults), review ledger + lock
+│   ├── lib/ship-status.sh   # ship status.json, events, retention, status/stop/watch
+│   ├── lib/ship-deploy.sh   # verify_deploy: pipeline run, health check, smoke test
 │   ├── code-review.sh       # two-pass agentic code review, runs on git push
-│   ├── ship.sh              # push, then (if enabled) open/approve/auto-merge a PR and clean up (make ship)
-│   ├── enable-auto-pr.sh    # turns on ship.sh's PR automation (make setup prompt, make auto-pr)
+│   ├── ship.sh              # ship a branch into develop from its own worktree (/ship, make ship)
+│   ├── set-ship-stage.sh    # writes ship_stage (make setup prompt, make ship-stage)
 │   ├── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
 │   └── precommit-check.sh   # Stop-hook gate: blocks finishing while pre-commit fails on changed files
-├── .codereviewrc            # review + ship config: agent, enabled, pr_automation (gitignored, personal)
+├── .codereviewrc            # review + ship config: models, auto-fix, ship_stage, deploy_* (gitignored, personal)
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
 ├── .pre-commit-config.yaml  # all hooks configured (pre-commit + pre-push stages)
 ├── .gitignore
@@ -57,7 +60,7 @@ Two files keep AI agents honest after they write code.
 
 `CLAUDE.md` tells Claude Code to run pre-commit after every change and fix failures at root cause rather than suppress them. It also sets a terse, impersonal response style, coding guidelines that favor reuse and the stdlib over new code, an explicit source-of-truth hierarchy (`docs/` > tests > code, so a failing test sends the agent to the specs rather than to the test file), and prose-humanizing directives (strip AI-writing tells from `.md` files) — all condensed in-line so no extra skills are needed. It's deliberately kept short: enforcement lives in hooks, and the file states each rule once rather than restating what a hook already checks. `.claude/settings.json` adds a `Stop` hook (`scripts/precommit-check.sh`) that runs pre-commit on the changed files when Claude finishes responding. A clean working tree skips the check, so a turn that only answered a question costs nothing. Failures feed back into the turn, so Claude sees them and corrects them before you're involved. A second `Stop` hook (`scripts/docs-sync-check.sh`) does the same job for documentation drift.
 
-The same file pre-approves read-only `gcloud`, `terraform`, and `docker` commands: `describe`, `list`, `get-iam-policy`, `logging read`, `plan`, `validate`, `state list`, `docker ps`, `docker logs`, `docker inspect`, `docker compose config`, and so on. Inspecting a GCP project or a running container no longer costs one permission prompt per command. Writes are a different matter. Anything not on the allowlist still prompts, and the destructive operations (`terraform apply`/`destroy`, `gcloud secrets versions access`, `projects delete`, service-account key creation, auth changes) sit in `ask`, along with `make ship` and `make deploy` (the `Bash(make *)` allow would otherwise let the agent push, auto-merge a PR, or deploy without a prompt) and `gcloud auth print-*-token` (a printed token lands in the transcript), so they prompt even if someone later adds a broader allow rule. `docker *` and `docker-compose *` sit in `ask` too, which keeps `run`, `exec`, `build`, `rm`, and `prune` prompting while the read verbs above go through. One limit worth knowing: permission rules only wildcard at the end, so a read verb on a service group the list doesn't name still prompts. Add it to `allow` when that happens.
+The same file pre-approves read-only `gcloud`, `terraform`, and `docker` commands: `describe`, `list`, `get-iam-policy`, `logging read`, `plan`, `validate`, `state list`, `docker ps`, `docker logs`, `docker inspect`, `docker compose config`, and so on. Inspecting a GCP project or a running container no longer costs one permission prompt per command. Writes are a different matter. Anything not on the allowlist still prompts, and the destructive operations (`terraform apply`/`destroy`, `gcloud secrets versions access`, `projects delete`, service-account key creation, auth changes) sit in `ask`, along with `make ship`, `bash scripts/ship.sh` and `make deploy` (the `Bash(make *)` allow would otherwise let the agent push, auto-merge a PR, or deploy without a prompt; the prompt on `make ship` is also `/ship`'s one confirmation) and `gcloud auth print-*-token` (a printed token lands in the transcript), so they prompt even if someone later adds a broader allow rule. `docker *` and `docker-compose *` sit in `ask` too, which keeps `run`, `exec`, `build`, `rm`, and `prune` prompting while the read verbs above go through. One limit worth knowing: permission rules only wildcard at the end, so a read verb on a service group the list doesn't name still prompts. Add it to `allow` when that happens.
 
 None of those rules apply until the workspace is trusted. Claude Code discards project-scoped `permissions.allow` entries in an untrusted directory, which leaves a new project in the worst state: the `ask` rules are enforced, the pre-approvals are gone, and every allowlisted read verb prompts anyway. The `deny` and `ask` arrays are never gated, only `allow`. So the skill records the new directory as trusted in `~/.claude.json` (`hasTrustDialogAccepted`) as part of scaffolding — the allowlist works on the first run and there's no trust dialog. Both the logical and physical spellings of the path are recorded, since Claude Code keys projects by the working directory it was launched with. To undo it, set that key back to `false`.
 
@@ -110,9 +113,9 @@ Findings come back as REQUIRED or SUGGESTED. Both passes' findings are printed t
 
 `.pre-commit-config.yaml` sets `fail_fast: true` and the review is the last pre-push hook, so a push that pytest or `make run-check` already blocked doesn't also pay for a model run.
 
-Reviews are incremental: the last passing commit for each branch is recorded in `.git/code-review-ledger`, so the next push reviews only new commits. An unchanged branch is never re-reviewed.
+Reviews are incremental: the last passing commit for each branch is recorded in `.git/code-review-ledger`, so the next push reviews only new commits. An unchanged branch is never re-reviewed. The ledger lives in the common git dir, so every worktree shares it, and each write holds a lock (a `mkdir` of `.git/code-review-ledger.lock`, since macOS has no `flock`; a lock whose PID is gone counts as stale). Any setting can be overridden for one push with `CR_<KEY>`, for example `CR_REVIEW_MODEL=sonnet git push`.
 
-A failed review fixes itself by default (`fix_enabled=true`): the REQUIRED findings from both passes go to a single fix agent, which fixes each one in the working tree or disputes it with checkable evidence (a `file:line`, a quoted doc statement, or test output). A verification pass then judges each finding resolved, dispute accepted, or still open, and reviews only the fix diff for new problems. It doesn't re-review the whole branch, because a fresh full review each round turns up new findings and may never converge. Fix → verify loops until nothing is open or `fix_max_iterations` is hit. If every finding was disputed and nothing changed, the push stays blocked and a human decides what happens next. The fixes are always left uncommitted and the push always stays blocked, even on success — what passed is a working tree, not a commit, so it can't be recorded or shipped. A plain `git push` leaves it there: review the diff, commit, push again — the committed fixes get one full review, and that's the pass that gets recorded. `make ship` goes one step further; see [Shipping a branch](#shipping-a-branch).
+A failed review fixes itself by default (`fix_enabled=true`): the REQUIRED findings from both passes go to a single fix agent, which fixes each one in the working tree or disputes it with checkable evidence (a `file:line`, a quoted doc statement, or test output). A verification pass then judges each finding resolved, dispute accepted, or still open, and reviews only the fix diff for new problems. It doesn't re-review the whole branch, because a fresh full review each round turns up new findings and may never converge. Fix → verify loops until nothing is open or `fix_max_iterations` is hit. If every finding was disputed and nothing changed, the push stays blocked and a human decides what happens next. The fixes are always left uncommitted and the push always stays blocked, even on success — what passed is a working tree, not a commit, so it can't be recorded or shipped. A plain `git push` leaves it there: review the diff, commit, push again — the committed fixes get one full review, and that's the pass that gets recorded. A ship goes one step further; see [Shipping a branch](#shipping-a-branch).
 
 Both agents run headless with `--setting-sources user --permission-mode dontAsk` and an explicit `--tools` list. Without that, `claude -p` loads the project's own `.claude/settings.json`: its Stop hooks would run pre-commit and the docs gate inside every review pass, and its auto mode and allow rules would let a read-only reviewer run commands beyond the `git` reads it's given.
 
@@ -139,27 +142,44 @@ Escape hatches: `SKIP_CODE_REVIEW=true git push` skips one push, `enabled=false`
 
 ## Shipping a branch
 
-`make ship` (`scripts/ship.sh`) always pushes the current branch, running the same review gate a plain `git push` would. Whether it goes further — opening a PR, self-approving it, enabling auto-merge, and once it lands checking out the default branch, pulling, and deleting the branch (local and remote) — depends on `pr_automation` in `.codereviewrc`, off by default. `make auto-pr` (`scripts/enable-auto-pr.sh --enable`) turns it on anytime; `make setup` also offers it as a one-time y/N prompt right after a fresh clone (skipped, not failed, when stdin isn't a TTY — e.g. CI).
+Every scaffolded project gets `/ship`, a project skill that ships the current branch into `develop` in the background while the developer keeps working. The full spec is [docs/specs/ship-skill.md](docs/specs/ship-skill.md); the generated project's `README.md` documents it for its users.
 
-With `pr_automation=true`, `ship.sh` checks the relevant CLI (`gh` or `az`) before pushing anything: not installed, or installed but not logged in, prints a friendly message naming the fix (`gh auth login` / `az login`, or install the CLI) and exits without touching the branch.
+`scripts/ship.sh` does the work, and none of it touches the developer's checkout:
 
-It's a separate script from the pre-push hook on purpose. `code-review.sh` runs *before* the commits reach the remote, which is how it can block a bad push; a PR can't be opened against commits the host doesn't have yet. So `ship.sh` pushes first, and only proceeds to the PR once that push actually succeeds. A REQUIRED finding blocks `ship.sh` exactly like it blocks `git push` today — with one difference from a plain `git push`: if `fix_enabled`'s loop resolved every REQUIRED finding, the fix is still sitting uncommitted (`code-review.sh` never commits or pushes on its own), and `ship.sh` shows you that diff and asks `Commit these fixes and push again? [y/N]`. Only on `y` does it commit and retry the push, up to `ship_fix_retries` times; declining, or running non-interactively, leaves the fix uncommitted exactly like a plain `git push` would.
+1. **Plan.** `make ship-plan` resolves every setting, tags each with its source (`--set`, `env`, `.codereviewrc`, `default`), and runs every preflight check the stage needs: on a feature branch ahead of `origin/develop`, the pre-push hook installed, `gh`/`az` logged in, reviewers that resolve, the deploy pipeline and target readable. It reports every failure at once and creates nothing.
+2. **Confirm.** `/ship` posts the block and runs `make ship ... ID= SHA= CONFIG=`. That command hits the `ask` rule on `make ship`, so the permission prompt is the one confirmation; denying it creates nothing. Kickoff refuses if HEAD or any resolved setting changed since the plan. `make ship` in a terminal asks `Proceed? [y/N]` instead, and refuses without a terminal unless `YES=1`.
+3. **Kickoff.** HEAD is frozen as `ship/<branch>-<sha7>`, whose review-ledger entry is seeded from the source branch so reviewed commits aren't reviewed again. A worktree for it is created at `../<repo>.ship-<id>`, with `.codereviewrc` copied in and `uv sync` run. The ship's files go in `.git/ship/<id>/`.
+4. **Review, fix, push** in the worktree. The pre-push review runs there. A converged auto-fix is committed and pushed again without asking, up to `ship_fix_retries` times: the worktree belongs to the ship, and each re-push gets a full review.
+5. **Stages**, as far as `ship_stage`: `push`; `open_pr` (the default); `merge` (self-approve, arm auto-merge, wait, then `git fetch origin develop`, which moves remote refs only); `verify_deploy` (find the dev pipeline run on the merge commit, wait for it, check Cloud Run or Agent Engine health and that it's running this commit, run the smoke test). No run within `deploy_run_grace` means path filters excluded the change, and the stage is skipped.
+6. **Finish.** A passed ship removes its worktree and local snapshot branch. A failed or stopped one keeps both and names them in its last event.
 
-The PR title and description come from the branch's own commit log (oldest first), not a generated summary — the commits already say what changed. `ship.sh` picks `gh` or `az repos pr` based on `origin`'s remote URL (`github.com` → `gh`, anything else → `az`), self-approves the PR, then hands it to the host's auto-merge (`gh pr merge --auto` / `az repos pr update --auto-complete`) rather than merging immediately. That matters on a repo with branch protection: self-approval is best-effort and silently becomes a no-op if the host rejects a self-review, and auto-merge (instead of an immediate merge) still waits correctly for any required check or a human reviewer rather than erroring out.
+Ship only targets `develop`, so it can't trigger a prod deploy. Each transition is a line in `.git/ship/<id>/events`, which `/ship` follows through `make ship-watch` and relays one line at a time. `/ship status` and `/ship stop` wrap `make ship-status` and `make ship-stop`. Two ships of the same branch and commit can't run at once; ships of different branches or commits run side by side, each in its own worktree. Finished ship directories are pruned `ship_log_retention_days` (default 30) after they finish.
 
-Configuration, also in `.codereviewrc`:
+Every `.codereviewrc` key can be overridden for one run: `/ship key=value` or `make ship SET='k=v;k=v'` first, then `CR_<KEY>`, then the file, then the default. Unknown keys fail with the closest known key. The Makefile reads `STAGE`, `SET`, `ID`, `SHA`, `CONFIG`, `DETACH` and `YES` from the command line only, so a stray environment variable can't change a ship or skip its prompt.
 
-| Key | Values | Default |
-|-----|--------|---------|
-| `pr_automation` | `true` / `false` | `false` |
-| `pr_host` | `gh`, `az` | auto-detected from `origin` |
-| `pr_merge_method` | `squash`, `merge`, `rebase` | `squash` |
-| `pr_self_approve` | `true` / `false` | `true` |
-| `pr_poll_interval` | seconds between merge-status polls | `15` |
-| `pr_poll_timeout` | seconds to wait before giving up (auto-merge stays armed) | `1800` |
-| `ship_fix_retries` | non-negative integer | `1` |
+The ship settings (`ship_stage`, `pr_reviewers`, the `pr_*` merge settings, the `deploy_*` keys) are documented in the scaffolded `.codereviewrc` and in the generated `README.md`. `make setup` asks for the stage once; `make ship-stage STAGE=<stage>` changes it, and `make auto-pr` is kept as an alias for `merge`. A `.codereviewrc` that still has the old `pr_automation` key and no `ship_stage` is read as `merge` (true) or `push` (false), with a notice.
 
-`.codereviewrc` is gitignored: `review_agent`/`fix_enabled` are the kind of thing a team wants applied consistently, but `pr_automation` is a personal call about whether *your* pushes get auto-merged, not something a committed file should turn on for every teammate the moment they pull — it stays off until that developer runs `make auto-pr` or answers yes to the `make setup` prompt. Every other key's default matches the scaffolded file's own values, so a clone with no `.codereviewrc` behaves identically. The scaffold still writes one, so there's something local to edit when a setting needs to change.
+In agent-starter-pack mode with a `cloud_run` or `agent_engine` target, the scaffold asks whether to tag deploys with the commit SHA. Yes adds `--revision-suffix=<sha12>` to the Cloud Run deploy or a `commit` label to the Agent Engine deploy, and sets `deploy_match=sha`; `verify_deploy` then checks the deployed revision is the merge commit rather than only that it's newer than the run. The scaffold also prefills `deploy_provider`, `deploy_region` and `deploy_name`.
+
+Scaffolded projects use `develop` as the default branch. Step 6 commits the scaffold on `main` and branches `develop` from it. The scaffold creates no remote, so the report gives the first-push commands:
+
+```bash
+git push -u origin main develop
+gh repo edit --default-branch develop   # or: az repos update --repository <repo> --default-branch develop
+git remote set-head origin develop
+```
+
+### Existing repos
+
+For a repo this skill didn't scaffold:
+
+1. Copy `.claude/skills/ship/`, `scripts/ship.sh`, `scripts/set-ship-stage.sh` and `scripts/lib/` from a scaffolded project, or from `templates/` here (`templates/skills/ship/` goes to `.claude/skills/ship/`). If `.gitignore` ignores `.claude/skills/`, add `!.claude/skills/ship/` so the team gets the skill.
+2. If the repo doesn't have the review gate, also copy `scripts/code-review.sh` and add its pre-push hook to `.pre-commit-config.yaml` (see `templates/pre-commit-config.yaml`).
+3. Add the ship keys from `templates/.codereviewrc` to `.codereviewrc`, and make sure `.codereviewrc` is in `.gitignore`.
+4. Add the `ship`, `ship-plan`, `ship-stage`, `ship-status`, `ship-watch` and `ship-stop` targets (and the `ship_arg`/`ship_flag`/`ship_args` helpers under them) from `templates/Makefile` to the Makefile. Add `Bash(make ship)`, `Bash(make ship *)`, `Bash(bash scripts/ship.sh*)` and `Bash(./scripts/ship.sh*)` to the `ask` list in `.claude/settings.json`.
+5. Run `/ship push` once as a dry run. Preflight lists anything still missing.
+
+A repo whose default branch is still `main` works: `ship.sh` exports `REVIEW_BASE_BRANCH=develop`, so the first review of a branch is based on `develop` either way.
 
 ## Installation
 
