@@ -8,7 +8,7 @@ Clone the repo, then:
 make setup
 ```
 
-This installs dependencies with `uv` and the git hooks with `pre-commit` (both the pre-commit and pre-push stages), then asks how far `/ship` should go after the review and push: `push`, `open_pr` (the default), `merge`, or `verify_deploy`. See [Shipping a branch](#shipping-a-branch).
+This installs dependencies with `uv` and the git hooks with `pre-commit` (the pre-commit, pre-push, and prepare-commit-msg stages), then asks how far `/ship` should go after the review and push: `push`, `open_pr` (the default), `merge`, or `verify_deploy`. See [Shipping a branch](#shipping-a-branch).
 
 The default branch is `develop`; `/ship` opens PRs into it. On the repo's first push, make it the remote default too:
 
@@ -39,7 +39,7 @@ Tools run through `uv run`, so nothing needs to be installed globally.
 `git push` triggers an agentic code review (`scripts/code-review.sh`, wired in as a pre-push hook). It makes two passes over your branch's diff:
 
 1. General review: correctness bugs, security, missing tests, DRY, YAGNI, use of existing libraries over hand-rolled code.
-2. Spec conformance: checks the change against the design documents in `docs/`.
+2. Spec conformance: checks the change against the design documents in `docs/` and the decisions recorded on the changed paths (see [Decision history](#decision-history)).
 
 Each pass reports findings as REQUIRED or SUGGESTED. Any REQUIRED finding blocks the push, and the full report lands in `working/code-review-report.md`. Fix the REQUIRED findings, commit, and push again.
 
@@ -84,6 +84,63 @@ SKIP_CODE_REVIEW=true git push
 ```
 
 Or set `enabled=false` in `.codereviewrc` to turn it off for the repo. Skipping is for humans; agents working in this repo are instructed not to.
+
+## Decision history
+
+The decisions behind the code are kept in commit messages as git trailers. There's no decision directory to maintain. Each decision is stored with the commit that made it, and `git log` finds it by path.
+
+### Recording a decision
+
+Put the trailers in the last paragraph of the commit message:
+
+```
+Route all Firestore writes through the repository layer
+
+- Move direct client calls in handlers to repo/
+- Add a transaction wrapper
+
+Decision: All Firestore writes go through repo/ so transactions are enforced in one place
+Rejected: Per-handler transactions (duplicated retry logic, caused the March double-write bug)
+Agent: claude-opus-5-5
+Co-Authored-By: ...
+```
+
+| Trailer | Holds |
+|---|---|
+| `Decision:` | What was decided and why, on one line. Repeat it for each decision in the commit |
+| `Rejected:` | An alternative that was ruled out, and the reason |
+| `Agent:` | The model or agent that worked on the change, if one did |
+| `Session:` | Optional. The agent session ID. Session transcripts are local and expire, so the `Decision:` line has to make sense without it |
+
+Git reads trailers only from the final paragraph. Keep them together at the end, with no blank line between them and `Co-Authored-By:`.
+
+Record a decision when a design discussion settles something, when you take a deliberate shortcut, or when you reverse an earlier decision. Routine commits don't need one. To reverse a decision, commit the change with a new `Decision:` trailer that says what changed and why. The newer entry supersedes the older one.
+
+### Finding decisions
+
+```bash
+scripts/decisions.sh src/pkg/repo.py   # one file, following renames
+scripts/decisions.sh src/pkg/          # a directory
+scripts/decisions.sh --limit 5 src/    # the newest five
+```
+
+The same lookup runs at four points without being asked for:
+
+- In Claude Code, the first time an agent edits a file in a session, a hook passes that file's decisions to the agent and shows you a one-line notice. The agent is told to stop and ask you before reversing one.
+- When `git commit` opens the message editor, the decisions on the staged files are listed as comment lines. Git strips them from the saved message. `git commit -m` skips this, since no editor opens.
+- On `git push`, the code review's spec pass checks the change against the decisions on the changed paths. A change that reverses one without a new `Decision:` trailer is a REQUIRED finding.
+- GitLens in VS Code and Annotate in JetBrains IDEs show commit messages, trailers included, on hover.
+
+### Squash merges drop decisions
+
+A squash merge replaces a branch's commits with one new commit, and the host's default squash message loses the trailers. After that, `scripts/decisions.sh` can't find them. Prefer merge or rebase merges into `develop`:
+
+- Azure DevOps: in the branch policies for `develop`, turn on "Limit merge types" and clear "Squash merge".
+- GitHub: under Settings, General, Pull Requests, clear "Allow squash merging".
+
+If you turn squash merging off, also set `pr_merge_method=merge` (or `rebase`) in `.codereviewrc`, or `/ship`'s merge stage fails to arm auto-merge.
+
+`/ship` squashes by default. When the branch has decision trailers, it writes the squash commit message itself, listing the commits and then every trailer, so nothing is lost. A squash merge from the host's web UI does not do this.
 
 ## Shipping a branch
 

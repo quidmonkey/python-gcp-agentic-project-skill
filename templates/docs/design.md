@@ -26,4 +26,4 @@ _Once this document passes ~400 lines or covers three or more flows, create `spe
 
 ## Trade-offs and Alternatives
 
-_Key decisions made and why. What alternatives were rejected?_
+_Project-wide decisions only: the few that shape the whole system and must not be lost, each with the alternatives rejected and why. Decisions scoped to particular code are recorded as commit trailers instead (see "Decision history" in `README.md`) and found by path with `scripts/decisions.sh`._

@@ -2,7 +2,8 @@
 # Two-pass agentic code review, run by the pre-push hook.
 #   Pass 1: general review — correctness, security, missing tests, DRY,
 #           YAGNI, library leverage, fit with the codebase.
-#   Pass 2: spec conformance against the documents in docs/.
+#   Pass 2: spec conformance against the documents in docs/ and the
+#           decisions recorded in commit trailers (scripts/decisions.sh).
 # The passes are independent and run in parallel.
 #
 # Commits are reviewed once: the last passing commit per branch is recorded in
@@ -359,7 +360,16 @@ EOF
 # both passes pass.
 run_review() {
     local range=$1
-    local p1 p2 o1 o2 s1 s2 ok1 ok2 pid1 pid2
+    local p1 p2 o1 o2 s1 s2 ok1 ok2 pid1 pid2 decisions
+    local paths=()
+
+    # Inlined rather than left to the agent: it only has git log, and the
+    # trailer query is easy to get subtly wrong.
+    while IFS= read -r f; do
+        [ -n "$f" ] && paths+=("$f")
+    done <<< "$(git diff --name-only "$range")"
+    decisions=$(bash "$script_dir/decisions.sh" --limit 40 -- ${paths[@]+"${paths[@]}"})
+    [ -n "$decisions" ] || decisions="None recorded."
 
     # read -d '' (not $(cat <<EOF)): bash 3.2 mis-parses quotes inside heredocs
     # nested in command substitutions.
@@ -410,7 +420,16 @@ Check that the changed code conforms to the intent laid out in the specs:
 - Per-flow behavior matches the flow's spec under docs/specs/
 - Data flow and integration points match the documented design
 - Nothing contradicts documented decisions or constraints
+- Nothing reverses a recorded decision below, or brings back an alternative it
+  rejected, unless a commit in $range records a new Decision trailer that
+  supersedes it
 - If the change alters design, architecture, or public API, the docs were updated in the same change
+
+Decisions recorded in commit trailers on the changed paths, newest first
+(README.md, "Decision history"). Entries from commits inside $range are this
+change's own. When a recorded decision and docs/ disagree, docs/ wins.
+
+$decisions
 
 Where the specs are silent on an area, that is not a finding. Only deviations
 from documented intent count.
@@ -419,8 +438,9 @@ Report every finding as a markdown bullet:
 - **REQUIRED** or **SUGGESTED** — \`file:line\` (or doc section) — the spec statement, the deviation, and what change is needed
 
 REQUIRED is limited to code that directly contradicts a documented statement,
-or a design, architecture, or public API change with no matching doc update.
-Quote the statement. Anything weaker, or resting on your reading of intent
+code that reverses a recorded decision with no superseding Decision trailer in
+the range, or a design, architecture, or public API change with no matching
+doc update. Quote the statement or the trailer and its commit. Anything weaker, or resting on your reading of intent
 rather than on what the doc says, is SUGGESTED.
 If there are no findings, say so.
 

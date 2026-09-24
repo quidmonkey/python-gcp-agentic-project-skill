@@ -245,6 +245,10 @@
       "Bash(./scripts/docs-sync-check.sh)",
       "Bash(bash scripts/precommit-check.sh)",
       "Bash(./scripts/precommit-check.sh)",
+      "Bash(bash scripts/decisions.sh)",
+      "Bash(bash scripts/decisions.sh *)",
+      "Bash(./scripts/decisions.sh)",
+      "Bash(./scripts/decisions.sh *)",
       "Bash(uv sync)",
       "Bash(uv sync *)",
       "Bash(uv lock)",
@@ -351,6 +355,17 @@
   },
   "skipAutoPermissionPrompt": true,
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/decisions-hook.sh\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",

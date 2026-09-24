@@ -7,7 +7,7 @@ A Claude Code skill that scaffolds Python projects with `uv`. One command wires 
 ```
 my-project/
 ├── .claude/
-│   ├── settings.json        # Stop hooks (pre-commit + docs drift); gcloud/terraform/docker read-only allowlist; auto mode on
+│   ├── settings.json        # Stop hooks (pre-commit + docs drift); PreToolUse decision hook; gcloud/terraform/docker read-only allowlist; auto mode on
 │   └── skills/ship/         # the /ship skill: plan, start, follow, stop a background ship
 ├── docs/                    # design.md, design.mmd, templates/ (spec + diagram starters); + finops.md, infra.md for GCP
 ├── scripts/
@@ -18,10 +18,13 @@ my-project/
 │   ├── ship.sh              # ship a branch into develop from its own worktree (/ship, make ship)
 │   ├── set-ship-stage.sh    # writes ship_stage (make setup prompt, make ship-stage)
 │   ├── docs-sync-check.sh   # Stop-hook gate: blocks finishing on stale docs/
+│   ├── decisions.sh         # lists the Decision/Rejected trailers on a path's commits
+│   ├── decisions-hook.sh    # PreToolUse hook: shows a file's decisions on the agent's first edit
+│   ├── decisions-commit-msg.sh  # prepare-commit-msg hook: lists decisions in the commit editor
 │   └── precommit-check.sh   # Stop-hook gate: blocks finishing while pre-commit fails on changed files
 ├── .codereviewrc            # review + ship config: models, auto-fix, ship_stage, deploy_* (gitignored, personal)
 ├── pyproject.toml           # ruff, ty, bandit, pytest config
-├── .pre-commit-config.yaml  # all hooks configured (pre-commit + pre-push stages)
+├── .pre-commit-config.yaml  # all hooks configured (pre-commit, pre-push, prepare-commit-msg stages)
 ├── .gitignore
 ├── uv.lock                  # committed; pins transitive deps for deterministic installs
 ├── CLAUDE.md                # Claude Code agent instructions
@@ -107,7 +110,7 @@ Beyond lint and tests, the scaffold bakes in one operational rule: after writing
 Every scaffolded project gets a pre-push code review gate (`scripts/code-review.sh`, wired into pre-commit's pre-push stage). Pushing a branch runs an AI agent over the branch diff in two passes, executed in parallel:
 
 1. **General review** — correctness bugs first, then security, missing tests per the project's CLAUDE.md testing rules, DRY, YAGNI, and preferring existing libraries over hand-rolled code. Style is left to ruff.
-2. **Spec conformance** — reads the design docs in `docs/` and flags code that deviates from the documented intent.
+2. **Spec conformance** — reads the design docs in `docs/` and flags code that deviates from the documented intent. It also gets the decisions recorded on the changed paths (see [Decision history](#decision-history)) and flags a change that reverses one without recording a new decision.
 
 Findings come back as REQUIRED or SUGGESTED. Both passes' findings are printed to the terminal whether the review passes or fails, capped at 100 lines per pass so a finding-heavy review can't flood stdout; the full report is written to `working/code-review-report.md`. Any REQUIRED finding fails the hook and blocks the push. The project's CLAUDE.md tells the agent to read that report, fix REQUIRED findings at root cause, and push again.
 
@@ -139,6 +142,14 @@ Both agents are configurable via `.codereviewrc`:
 The contract is agent-agnostic: whatever runs must print its review to stdout and end with `VERDICT: PASS` or `VERDICT: FAIL`. Models are set explicitly rather than inherited from the `claude` CLI default. The aliases still move to each new release, so set a full model ID (for example `claude-opus-5-5`) to pin one exactly. One blocked push with auto-fix on runs 2 review passes plus up to 2 fix and 2 verification passes. Pass 1 gets Opus at high effort because finding bugs nobody has reported is the hardest job in the gate. A missed bug goes unnoticed, and each false REQUIRED costs a fix and a verification round. Pass 2, verification, and the fix pass work from a stated doc or finding and run on Sonnet. A misconfigured file (unknown agent, `custom` with no command) blocks the push rather than silently disabling the gate.
 
 Escape hatches: `SKIP_CODE_REVIEW=true git push` skips one push, `enabled=false` turns it off for the repo. If the agent CLI isn't installed at all, the hook warns and fails open so teammates without it aren't blocked.
+
+## Decision history
+
+Why the code is the way it is gets lost over time. `docs/design.md` is rewritten to match the current design, code comments churn with the code, and an agent about to change something won't read the history of every file. The scaffold records decisions as git trailers in the commit that makes them (`Decision:`, `Rejected:`, `Agent:`), so there's no directory of decision files to grow, and `scripts/decisions.sh <path>` finds them by path.
+
+They're shown back when the code changes. An agent gets a file's decisions after its first edit to that file in a session, through a PreToolUse hook, and the developer sees a one-line notice. `CLAUDE.md` tells the agent to stop and ask before reversing one. The `git commit` editor lists the decisions on the staged files as comment lines. The review's spec pass blocks a reversal that no new `Decision:` trailer records. `/ship` copies them into the PR description.
+
+Squash merges drop trailers. `/ship` writes its own squash commit message to keep them, but a squash from the host's web UI doesn't, so the generated `README.md` recommends turning squash merging off for `develop`, and the scaffold's report repeats the warning. The full spec is [docs/specs/decision-trailers.md](docs/specs/decision-trailers.md).
 
 ## Shipping a branch
 

@@ -26,11 +26,26 @@ Trigger this for proposals that involve:
 
 Only proceed to implementation after all decision branches are resolved and the user confirms.
 
+## Decision history
+
+Decisions are recorded as trailers in commit messages, not as files. `README.md` ("Decision history") defines the trailer format.
+
+Add a `Decision:` trailer, plus a `Rejected:` trailer for each alternative ruled out, and `Agent: <model id>`, when a commit:
+- carries the outcome of a design interview (above)
+- takes a deliberate shortcut (alongside its code comment)
+- reverses an earlier decision
+
+Routine commits get no decision trailers. Put the trailers in the message's final paragraph, in the same block as `Co-Authored-By:` with no blank line between them; git reads trailers only from there.
+
+A PreToolUse hook shows the recorded decisions for a file after the first edit to it in a session; `scripts/decisions.sh <path>` lists them at any time. A recorded decision holds until a later one supersedes it. If a requested change reverses one or brings back an alternative it rejected, stop and ask the developer before going further. Once they confirm, record the new decision with a trailer on the commit. Never reverse a decision silently.
+
 ## Before making changes
 
 When a change touches Python code, run the tests that cover that area first, so an existing failure isn't mistaken for one the change caused. Doc-only changes skip this.
 
 **Source of truth, highest authority first:** `docs/` (specs and `design.md`) > tests > code. Docs state intended behavior; tests encode it where the docs are silent; code only describes what happens now. Resolve any conflict by climbing to the highest level that speaks to it.
+
+Decisions recorded in commit trailers explain why the docs and code are the way they are, but they don't outrank `docs/`: when one conflicts with the docs, the docs win.
 
 So a failing test means either the code is wrong or the test contradicts the docs. Check the docs before assuming the test is correct; where they're silent, the test wins over the code.
 

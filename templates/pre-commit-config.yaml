@@ -1,5 +1,6 @@
-# pre-push is required for the pytest and code-review hooks below.
-default_install_hook_types: [pre-commit, pre-push]
+# pre-push is required for the pytest and code-review hooks below, and
+# prepare-commit-msg for the decision-history hook.
+default_install_hook_types: [pre-commit, pre-push, prepare-commit-msg]
 # Stop at the first failing hook: the paid code review runs last and shouldn't
 # spend a model run on a push that pytest or run-check has already blocked.
 fail_fast: true
@@ -55,6 +56,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+
+      - id: decision-history
+        name: list prior decisions in the commit message
+        entry: bash scripts/decisions-commit-msg.sh
+        language: system
+        always_run: true
+        stages: [prepare-commit-msg]
 
       - id: code-review
         name: agentic code review (two-pass)

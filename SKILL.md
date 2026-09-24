@@ -1,6 +1,6 @@
 ---
 name: python-gcp-agentic-project-skill
-version: 3.0.0
+version: 3.1.0
 description: |
   Create a new Python project using uv with pre-commit, ruff, ty, bandit, and pytest
   configured and ready to use. Prompts for project name and layout (single package or monorepo).
@@ -153,6 +153,9 @@ Notes:
 | `templates/scripts/set-ship-stage.sh` | `scripts/set-ship-stage.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
 | `templates/scripts/precommit-check.sh` | `scripts/precommit-check.sh` | write |
+| `templates/scripts/decisions.sh` | `scripts/decisions.sh` | write |
+| `templates/scripts/decisions-hook.sh` | `scripts/decisions-hook.sh` | write |
+| `templates/scripts/decisions-commit-msg.sh` | `scripts/decisions-commit-msg.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/skills/ship/SKILL.md` | `.claude/skills/ship/SKILL.md` | write |
 | `templates/Makefile` | `Makefile` | write |
@@ -185,6 +188,9 @@ Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 | `templates/scripts/set-ship-stage.sh` | `scripts/set-ship-stage.sh` | write |
 | `templates/scripts/docs-sync-check.sh` | `scripts/docs-sync-check.sh` | write |
 | `templates/scripts/precommit-check.sh` | `scripts/precommit-check.sh` | write |
+| `templates/scripts/decisions.sh` | `scripts/decisions.sh` | write |
+| `templates/scripts/decisions-hook.sh` | `scripts/decisions-hook.sh` | write |
+| `templates/scripts/decisions-commit-msg.sh` | `scripts/decisions-commit-msg.sh` | write |
 | `templates/settings.json` | `.claude/settings.json` | write |
 | `templates/skills/ship/SKILL.md` | `.claude/skills/ship/SKILL.md` | write |
 | `templates/docs/design.md` | `docs/design.md` | write |
@@ -198,7 +204,7 @@ Skip the `finops.md` and `infra.md` rows entirely for non-GCP projects.
 
 ```bash
 mkdir -p .claude/skills/ship docs/templates working scripts/lib
-chmod +x scripts/code-review.sh scripts/ship.sh scripts/set-ship-stage.sh scripts/docs-sync-check.sh scripts/precommit-check.sh
+chmod +x scripts/code-review.sh scripts/ship.sh scripts/set-ship-stage.sh scripts/docs-sync-check.sh scripts/precommit-check.sh scripts/decisions.sh scripts/decisions-hook.sh scripts/decisions-commit-msg.sh
 ```
 
 **Prefilled deploy settings (`{{asp}}` with `cloud_run` or `agent_engine`):** in the written `.codereviewrc`, set `deploy_provider=<deployment target>`, `deploy_region` to the region the generated deploy code uses (agent-starter-pack's default is `us-central1`), and `deploy_name` to the Cloud Run service name or Agent Engine display name that code deploys (read it from the generated `Makefile` `deploy` target or deploy script; it's normally the project name). Set `deploy_match=sha` if `{{sha-tagging}}` is yes. Leave `deploy_pipeline`, `deploy_project` and `deploy_smoke` empty: the scaffold doesn't know them. Skip this for every other target and for the plain scaffold.
@@ -244,11 +250,11 @@ The commit runs the pre-commit hooks. A hook that rewrites files (for example `e
 
 In ASP mode, run `uv run pre-commit run --all-files` once here and fix what it finds before reporting done — confirmed by dry run (agent-starter-pack v0.41.3, `adk` template): the `end-of-file-fixer` hook fixes `deployment_metadata.json` (expected, first-run only), and `ruff-check` fails on a pre-existing `RUF005` violation in agent-starter-pack's own generated `{{code-dir}}/agent_engine_app.py` (`register_operations`) — that file is agent-starter-pack's, not this skill's template, and `--unsafe-fixes` or a one-line manual edit clears it. Different agent-starter-pack templates or versions may generate different code; run the hooks and fix whatever they actually report rather than assuming this exact finding.
 
-`default_install_hook_types` in `.pre-commit-config.yaml` makes this install both the pre-commit and pre-push stages — pre-push carries the pytest and code-review hooks.
+`default_install_hook_types` in `.pre-commit-config.yaml` makes this install the pre-commit, pre-push, and prepare-commit-msg stages — pre-push carries the pytest and code-review hooks, prepare-commit-msg the decision-history listing.
 
 ## Step 7: Trust the workspace
 
-Claude Code drops every project-scoped `permissions.allow` entry until the workspace is trusted, so a freshly scaffolded project starts with all 271 pre-approvals inert and all 47 `ask` rules live — maximally prompt-y. Record trust for the new directory so `.claude/settings.json` takes effect on first use.
+Claude Code drops every project-scoped `permissions.allow` entry until the workspace is trusted, so a freshly scaffolded project starts with all 275 pre-approvals inert and all 47 `ask` rules live — maximally prompt-y. Record trust for the new directory so `.claude/settings.json` takes effect on first use.
 
 Run from the project root. Both path spellings are recorded because Claude Code keys projects by the cwd it was started with, which may be a symlinked path. `uv run python` is used rather than a bare `python3` — uv is already a hard requirement and the project env exists by now, whereas `python3` goes through whatever version manager the user has and can fail inside a directory holding a `.python-version` file.
 
@@ -287,11 +293,13 @@ If the script exits with the JSON error, report it — do not hand-edit `~/.clau
 
 - Project: `./{{project-name}}/`
 - Tools: ruff, ty, bandit, pytest, pre-commit (in ASP mode, layered on the agent-starter-pack stack: ADK/LangGraph, `uv`, ADK eval — say so explicitly, and name the agent template and deployment target chosen)
-- Agent files: `CLAUDE.md`, `.claude/settings.json` (Stop hooks run the pre-commit gate `scripts/precommit-check.sh` and the docs-sync gate, both exiting 2 on failure so the agent sees them; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes, on `make ship`, `bash scripts/ship.sh` and `make deploy` (which `Bash(make *)` would otherwise let push, auto-merge, or deploy unprompted; the prompt on `make ship` is `/ship`'s one confirmation), and on `gcloud auth print-*-token` (keeps bearer tokens out of the transcript unless approved), denies reads of `.env` variants that hold secrets and of `secrets/`). Every `ask` rule names a specific subcommand rather than a bare binary — a wildcard like `Bash(gcloud *)` or `Bash(docker *)` would silently cancel the read-only allowlist below it, because permission rules merge across all settings files and `ask` outranks `allow`. In ASP mode, `CLAUDE.md` is agent-starter-pack's own file with this skill's governance section appended — say both parts are present, not that `CLAUDE.md` was generated fresh
+- Agent files: `CLAUDE.md`, `.claude/settings.json` (a PreToolUse hook on Edit/Write runs `scripts/decisions-hook.sh`; Stop hooks run the pre-commit gate `scripts/precommit-check.sh` and the docs-sync gate, both exiting 2 on failure so the agent sees them; pre-approves read-only `gcloud`/`terraform`/`docker` commands, prompts on writes, on `make ship`, `bash scripts/ship.sh` and `make deploy` (which `Bash(make *)` would otherwise let push, auto-merge, or deploy unprompted; the prompt on `make ship` is `/ship`'s one confirmation), and on `gcloud auth print-*-token` (keeps bearer tokens out of the transcript unless approved), denies reads of `.env` variants that hold secrets and of `secrets/`). Every `ask` rule names a specific subcommand rather than a bare binary — a wildcard like `Bash(gcloud *)` or `Bash(docker *)` would silently cancel the read-only allowlist below it, because permission rules merge across all settings files and `ask` outranks `allow`. In ASP mode, `CLAUDE.md` is agent-starter-pack's own file with this skill's governance section appended — say both parts are present, not that `CLAUDE.md` was generated fresh
 - Workspace trust: recorded in `~/.claude.json` (`hasTrustDialogAccepted`), so the allowlist is live on first run with no trust dialog. Say so explicitly — the user is entitled to know a scaffold granted its own pre-approvals
 - Docs sync gate: `scripts/docs-sync-check.sh` (Stop hook, exits 2 so the agent actually sees it) blocks finishing while `docs/design.mmd` is stale against `docs/design.md`; a changed spec's `docs/specs/<flow>-diagram.mmd` is stale or the spec isn't linked from the Flows index in `docs/design.md`; `docs/design.md` is over 400 lines with no per-flow specs yet; or — GCP only, once something deployable exists — `docs/finops.md` is still `_TBD_` or wasn't updated alongside a changed footprint (`docs/design.md`, `docs/infra.md`, `Dockerfile`, `scripts/deploy.sh`, `*.tf`). Fires at most once per turn
 - Docs: `docs/design.md`, `docs/design.mmd` (+ `docs/finops.md`, `docs/infra.md` for GCP projects)
 - Design doc split: while the project is small `design.md` holds everything, and `docs/specs/` doesn't exist. Past ~400 lines or three flows, each flow moves to `docs/specs/<flow>.md` + `docs/specs/<flow>-diagram.mmd` (copied from `docs/templates/spec.md` and `docs/templates/diagram.mmd`), linked from the Flows index in `design.md`, which keeps the architecture and cross-cutting sections. `CLAUDE.md` states the rule; the Stop hook enforces it
+- Decision history: decisions are recorded as `Decision:`/`Rejected:`/`Agent:` trailers in commit messages (format in the scaffolded `README.md`, "Decision history"; rules in `CLAUDE.md`), and `scripts/decisions.sh <path>` lists them by path, following renames for a single file. They surface on an agent's first edit to a file in a session (PreToolUse hook: `additionalContext` for the agent, a one-line `systemMessage` for the developer), as comment lines in the `git commit` editor (prepare-commit-msg hook; skipped for `-m`, `--amend`, merges, and cleanup modes that keep comments), in code-review pass 2 (reversing one without a superseding trailer is REQUIRED), and in `/ship`'s PR description. None of the surfacing points block except the review
+- Squash warning: print it on its own line, not folded into the bullet above. Squash merges drop the trailers unless they're copied into the squash commit, so the scaffold works best without squash merges: on Azure DevOps turn on "Limit merge types" in the `develop` branch policy and clear "Squash merge"; on GitHub clear "Allow squash merging". With squash turned off, set `pr_merge_method=merge` (or `rebase`) in `.codereviewrc`. `/ship` itself keeps the trailers when it squashes (the default) by writing the squash commit message; a web-UI squash doesn't. The scaffolded `README.md` carries the same warning
 - Code review: pre-push hook runs a two-pass agentic review (`scripts/code-review.sh`, configured via `.codereviewrc`; `review_agent` defaults to claude; `review_model` opus at `review_effort` high for pass 1, `review_spec_model` sonnet for pass 2 and fix verification). The headless review and fix agents run with `--setting-sources user --permission-mode dontAsk` and an explicit `--tools` list, so the project's Stop hooks and auto-mode permissions don't apply inside them; blocks the push on REQUIRED findings, always prints each pass's findings to the terminal (capped at 100 lines per pass), full report in `working/code-review-report.md`, incremental per branch
 - Auto-fix: `fix_enabled=true` in `.codereviewrc` (default true) hands a failed review's REQUIRED findings to a single `fix_agent` (default claude, `fix_model` sonnet) that fixes each finding in the working tree (verifying with pre-commit and pytest) or disputes it with evidence, then a verification pass judges each finding resolved, dispute accepted, or open and reviews only the fix diff; fix -> verify loops (up to `fix_max_iterations`, default 2) until nothing is open; prints a capped fix summary and leaves changes uncommitted with the push still blocked either way — the hook itself never commits or pushes
 - Shipping: `/ship` (the project skill in `.claude/skills/ship/`, committed so the team shares it) and `make ship` run `scripts/ship.sh`, which freezes HEAD as `ship/<branch>-<sha7>` and does everything in its own git worktree (`../<repo>.ship-<id>`), so the developer's checkout is never touched. In the worktree it pushes (the pre-push review runs there), commits and re-pushes a converged auto-fix on its own (up to `ship_fix_retries`), then goes as far as `ship_stage`: `push`, `open_pr` (default: a PR into `develop` via `gh` or `az repos pr`, with optional `pr_reviewers`), `merge` (self-approve, arm auto-merge, wait), or `verify_deploy` (wait for the dev pipeline run on the merge commit, check the Cloud Run service or Agent Engine is healthy and running that commit, run `deploy_smoke`). It never targets `main`, so it can't trigger a prod deploy. `/ship` runs it in the background and posts one line per stage from `.git/ship/<id>/events`; `/ship status` and `/ship stop` manage running ships
