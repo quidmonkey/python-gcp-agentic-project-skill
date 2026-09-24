@@ -249,6 +249,8 @@
       "Bash(bash scripts/decisions.sh *)",
       "Bash(./scripts/decisions.sh)",
       "Bash(./scripts/decisions.sh *)",
+      "Bash(scripts/decisions.sh)",
+      "Bash(scripts/decisions.sh *)",
       "Bash(uv sync)",
       "Bash(uv sync *)",
       "Bash(uv lock)",

@@ -1,6 +1,10 @@
 # pre-push is required for the pytest and code-review hooks below, and
 # prepare-commit-msg for the decision-history hook.
 default_install_hook_types: [pre-commit, pre-push, prepare-commit-msg]
+# Hooks without their own `stages:` run at commit only. Without this they would
+# also run at every installed stage above, so ty and bandit ran again on
+# prepare-commit-msg and pre-push.
+default_stages: [pre-commit]
 # Stop at the first failing hook: the paid code review runs last and shouldn't
 # spend a model run on a push that pytest or run-check has already blocked.
 fail_fast: true
@@ -42,9 +46,11 @@ repos:
         language: system
         pass_filenames: false
 
+      # pytest exits 5 when it collects no tests, which would block the first
+      # push of a fresh scaffold; no tests yet is a pass, not a failure.
       - id: pytest
         name: pytest
-        entry: uv run --no-sync pytest {{test-dir}} --tb=short
+        entry: bash -c 'uv run --no-sync pytest {{test-dir}} --tb=short; rc=$?; [ "$rc" -eq 5 ] && exit 0; exit "$rc"'
         language: system
         pass_filenames: false
         stages: [pre-push]
